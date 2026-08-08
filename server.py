@@ -1,4 +1,7 @@
 import socket
+import threading
+
+clients = []
 
 server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 
@@ -7,18 +10,37 @@ server.bind(("0.0.0.0", 5000))
 server.listen()
 
 print("Server is running")
-print("Waiting for connection...")
+print("Waiting for connections...")
 
-client, address = server.accept()
 
-print("Client connected", address)
+def broadcast(message):
+    for client in clients:
+        client.send(message)
+
+
+def handle_client(client, address):
+    print("Client connected", address)
+
+    while True:
+        message = client.recv(1024)
+
+        if not message:
+            break
+
+        print("Client:", message.decode())
+
+        broadcast(message)
+
 
 while True:
-    message = client.recv(1024)
+    client, address = server.accept()
 
-    if not message:
-        break
+    clients.append(client)
 
-    print("Client:", message.decode())
+    thread = threading.Thread(
+        target=handle_client,
+        args=(client, address),
+        daemon=True
+    )
 
-    client.send(message)
+    thread.start()
