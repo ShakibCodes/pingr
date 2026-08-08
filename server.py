@@ -1,80 +1,202 @@
 import socket
 import threading
 
+
 # =========================
-# MESH DATA
+# SERVER CONFIG
+# =========================
+
+HOST = "0.0.0.0"
+PORT = 5000
+
+
+# =========================
+# MESHES
 # =========================
 
 meshes = {}
 
-# Example:
+# Structure:
 #
 # meshes = {
-#     "Friends": {
+#     "Brother": {
 #         "password": "1234",
 #         "clients": {
-#             client_socket: "Shakib",
-#             client_socket2: "Tabish"
+#             socket1: "Shakib",
+#             socket2: "Tabish"
 #         }
 #     }
 # }
 
 
+mesh_lock = threading.Lock()
+
+
 # =========================
-# SERVER
+# SOCKET
 # =========================
 
-server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+server = socket.socket(
+    socket.AF_INET,
+    socket.SOCK_STREAM
+)
 
-server.bind(("0.0.0.0", 5000))
+server.setsockopt(
+    socket.SOL_SOCKET,
+    socket.SO_REUSEADDR,
+    1
+)
 
+server.bind((HOST, PORT))
 server.listen()
+
 
 print("Server is running")
 print("Waiting for connections...")
 
 
 # =========================
-# SEND MESSAGE
+# SEND
 # =========================
 
 def send(client, message):
-    client.send(message.encode())
+
+    try:
+        client.sendall(
+            (message + "\n").encode("utf-8")
+        )
+
+    except:
+        pass
 
 
 # =========================
 # BROADCAST
 # =========================
 
-def broadcast(mesh_name, message):
-    mesh = meshes[mesh_name]
+def broadcast(mesh_name, message, exclude=None):
 
-    for client in mesh["clients"]:
-        client.send(message.encode())
+    with mesh_lock:
+
+        if mesh_name not in meshes:
+            return
+
+        clients = list(
+            meshes[mesh_name]["clients"].keys()
+        )
+
+    for client in clients:
+
+        if client == exclude:
+            continue
+
+        send(client, message)
+
+
+# =========================
+# SEND MEMBER COUNT
+# =========================
+
+def send_member_count(mesh_name):
+
+    with mesh_lock:
+
+        if mesh_name not in meshes:
+            return
+
+        count = len(
+            meshes[mesh_name]["clients"]
+        )
+
+    broadcast(
+        mesh_name,
+        f"COUNT|{count}"
+    )
 
 
 # =========================
 # REMOVE CLIENT
 # =========================
 
-def remove_client(client, username, mesh_name):
+def remove_client(
+    client,
+    username,
+    mesh_name
+):
 
-    if mesh_name in meshes:
+    if mesh_name is None:
 
-        mesh = meshes[mesh_name]
+        try:
+            client.close()
+        except:
+            pass
 
-        if client in mesh["clients"]:
-            del mesh["clients"][client]
+        return
 
-            print(username, "left", mesh_name)
 
-        # If mesh becomes empty, delete it
-        if len(mesh["clients"]) == 0:
-            del meshes[mesh_name]
+    left_mesh = False
+    remaining_count = 0
+    mesh_deleted = False
 
-            print("Mesh deleted:", mesh_name)
 
-    client.close()
+    with mesh_lock:
+
+        if mesh_name in meshes:
+
+            mesh = meshes[mesh_name]
+
+            if client in mesh["clients"]:
+
+                del mesh["clients"][client]
+
+                left_mesh = True
+
+            remaining_count = len(
+                mesh["clients"]
+            )
+
+
+            # Delete empty mesh
+            if remaining_count == 0:
+
+                del meshes[mesh_name]
+
+                mesh_deleted = True
+
+
+    # =========================
+    # NOTIFY EVERYONE
+    # =========================
+
+    if left_mesh and not mesh_deleted:
+
+        broadcast(
+            mesh_name,
+            f"SERVER|{username} left the mesh"
+        )
+
+        send_member_count(mesh_name)
+
+        print(
+            f"{username} left mesh: {mesh_name}"
+        )
+
+    elif left_mesh and mesh_deleted:
+
+        print(
+            f"{username} left mesh: {mesh_name}"
+        )
+
+        print(
+            f"Mesh deleted: {mesh_name}"
+        )
+
+
+    try:
+        client.close()
+
+    except:
+        pass
 
 
 # =========================
@@ -83,35 +205,55 @@ def remove_client(client, username, mesh_name):
 
 def handle_client(client, address):
 
-    print("Client connected:", address)
+    print(
+        "Client connected:",
+        address
+    )
 
-    mesh_name = None
     username = None
+    mesh_name = None
 
     try:
+
+        # Create a line-based reader.
+        # Every message ends with \n.
+        reader = client.makefile(
+            "r",
+            encoding="utf-8"
+        )
+
 
         # =========================
         # USERNAME
         # =========================
 
-        username = client.recv(1024).decode()
+        line = reader.readline()
 
-        print("Username:", username)
+        if not line:
+            return
+
+        username = line.rstrip("\n")
+
+        print(
+            "Username:",
+            username
+        )
+
 
         # =========================
-        # WAIT FOR MESH COMMAND
+        # MESH SETUP
         # =========================
 
         while True:
 
-            data = client.recv(1024)
+            line = reader.readline()
 
-            if not data:
-                break
+            if not line:
+                return
 
-            data = data.decode()
+            data = line.rstrip("\n")
 
-            parts = data.split("|")
+            parts = data.split("|", 2)
 
             command = parts[0]
 
@@ -123,14 +265,38 @@ def handle_client(client, address):
             if command == "START":
 
                 if len(parts) < 3:
-                    send(client, "ERROR|Invalid start request")
+
+                    send(
+                        client,
+                        "ERROR|Invalid start request"
+                    )
+
                     continue
+
 
                 requested_mesh = parts[1]
                 password = parts[2]
 
-                # Mesh already exists
-                if requested_mesh in meshes:
+
+                with mesh_lock:
+
+                    if requested_mesh in meshes:
+
+                        exists = True
+
+                    else:
+
+                        exists = False
+
+                        meshes[requested_mesh] = {
+                            "password": password,
+                            "clients": {
+                                client: username
+                            }
+                        }
+
+
+                if exists:
 
                     send(
                         client,
@@ -139,26 +305,27 @@ def handle_client(client, address):
 
                     continue
 
-                # Create mesh
-                meshes[requested_mesh] = {
-                    "password": password,
-                    "clients": {
-                        client: username
-                    }
-                }
 
                 mesh_name = requested_mesh
 
                 print(
-                    username,
-                    "created mesh:",
-                    mesh_name
+                    f"{username} created mesh: {mesh_name}"
                 )
+
 
                 send(
                     client,
                     "SUCCESS|Mesh created"
                 )
+
+
+                send(
+                    client,
+                    f"SERVER|Mesh '{mesh_name}' created"
+                )
+
+
+                send_member_count(mesh_name)
 
                 break
 
@@ -170,14 +337,42 @@ def handle_client(client, address):
             elif command == "JOIN":
 
                 if len(parts) < 3:
-                    send(client, "ERROR|Invalid join request")
+
+                    send(
+                        client,
+                        "ERROR|Invalid join request"
+                    )
+
                     continue
+
 
                 requested_mesh = parts[1]
                 password = parts[2]
 
-                # Mesh doesn't exist
-                if requested_mesh not in meshes:
+
+                with mesh_lock:
+
+                    if requested_mesh not in meshes:
+
+                        status = "NOT_FOUND"
+
+                    elif (
+                        password
+                        != meshes[requested_mesh]["password"]
+                    ):
+
+                        status = "WRONG_PASSWORD"
+
+                    else:
+
+                        status = "OK"
+
+                        meshes[
+                            requested_mesh
+                        ]["clients"][client] = username
+
+
+                if status == "NOT_FOUND":
 
                     send(
                         client,
@@ -186,10 +381,8 @@ def handle_client(client, address):
 
                     continue
 
-                mesh = meshes[requested_mesh]
 
-                # Wrong password
-                if password != mesh["password"]:
+                if status == "WRONG_PASSWORD":
 
                     send(
                         client,
@@ -198,27 +391,30 @@ def handle_client(client, address):
 
                     continue
 
-                # Add user
-                mesh["clients"][client] = username
 
                 mesh_name = requested_mesh
 
+
                 print(
-                    username,
-                    "joined mesh:",
-                    mesh_name
+                    f"{username} joined mesh: {mesh_name}"
                 )
+
 
                 send(
                     client,
                     "SUCCESS|Joined mesh"
                 )
 
-                # Tell everyone in the mesh
+
+                # Tell everyone
                 broadcast(
                     mesh_name,
-                    f"[Server]: {username} joined the mesh"
+                    f"SERVER|{username} joined the mesh"
                 )
+
+
+                # Update count
+                send_member_count(mesh_name)
 
                 break
 
@@ -235,33 +431,81 @@ def handle_client(client, address):
         # CHAT
         # =========================
 
-        if mesh_name is None:
-            return
-
         while True:
 
-            data = client.recv(1024)
+            line = reader.readline()
 
-            if not data:
+            if not line:
                 break
 
-            message = data.decode()
+            data = line.rstrip("\n")
 
-            # EXIT
-            if message == "/exit":
-                break
 
-            print(
-                username + ":",
-                message
-            )
+            # =========================
+            # COMMAND
+            # =========================
 
-            full_message = f"[{username}]: {message}"
+            if data.startswith("CMD|"):
 
-            broadcast(
-                mesh_name,
-                full_message
-            )
+                command = data[4:]
+
+
+                # =========================
+                # /members
+                # =========================
+
+                if command == "members":
+
+                    with mesh_lock:
+
+                        if mesh_name not in meshes:
+                            continue
+
+                        members = list(
+                            meshes[
+                                mesh_name
+                            ]["clients"].values()
+                        )
+
+
+                    # Send ONLY to this client
+                    member_data = "|".join(
+                        members
+                    )
+
+                    send(
+                        client,
+                        f"MEMBERS|{len(members)}|{member_data}"
+                    )
+
+
+                # =========================
+                # /exit
+                # =========================
+
+                elif command == "exit":
+
+                    break
+
+
+            # =========================
+            # NORMAL MESSAGE
+            # =========================
+
+            elif data.startswith("MSG|"):
+
+                message = data[4:]
+
+
+                print(
+                    f"{username}: {message}"
+                )
+
+
+                broadcast(
+                    mesh_name,
+                    f"CHAT|{username}|{message}"
+                )
 
 
     except Exception as e:
@@ -275,13 +519,11 @@ def handle_client(client, address):
 
     finally:
 
-        if username is not None:
-
-            remove_client(
-                client,
-                username,
-                mesh_name
-            )
+        remove_client(
+            client,
+            username,
+            mesh_name
+        )
 
 
 # =========================
@@ -292,10 +534,12 @@ while True:
 
     client, address = server.accept()
 
+
     thread = threading.Thread(
         target=handle_client,
         args=(client, address),
         daemon=True
     )
+
 
     thread.start()

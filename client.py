@@ -2,10 +2,23 @@ import socket
 import threading
 
 from prompt_toolkit.application import Application
-from prompt_toolkit.layout import Layout, HSplit, Window
-from prompt_toolkit.layout.controls import FormattedTextControl
+from prompt_toolkit.layout import (
+    Layout,
+    HSplit,
+    VSplit,
+    Window,
+    ScrollOffsets
+)
+from prompt_toolkit.layout.controls import (
+    FormattedTextControl,
+    BufferControl
+)
+
+from prompt_toolkit.buffer import Buffer
+from prompt_toolkit.formatted_text import (
+    FormattedText
+)
 from prompt_toolkit.widgets import TextArea
-from prompt_toolkit.formatted_text import FormattedText
 from prompt_toolkit.styles import Style
 from prompt_toolkit.key_binding import KeyBindings
 
@@ -18,15 +31,23 @@ username = input("Enter your name: ")
 
 
 # =========================
-# CONNECT TO SERVER
+# CONNECT
 # =========================
 
-client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+client = socket.socket(
+    socket.AF_INET,
+    socket.SOCK_STREAM
+)
 
-client.connect(("127.0.0.1", 5000))
+client.connect(
+    ("127.0.0.1", 5000)
+)
 
-# Send username first
-client.send(username.encode())
+
+# Send username
+client.sendall(
+    (username + "\n").encode("utf-8")
+)
 
 
 # =========================
@@ -47,7 +68,11 @@ def menu_text():
 
     for i, option in enumerate(menu_options):
 
-        prefix = "> " if i == menu_choice else "  "
+        prefix = (
+            "> "
+            if i == menu_choice
+            else "  "
+        )
 
         result.append(
             (
@@ -59,12 +84,17 @@ def menu_text():
         )
 
         if i != len(menu_options) - 1:
-            result.append(("", "\n"))
+
+            result.append(
+                ("", "\n")
+            )
 
     return FormattedText(result)
 
 
-menu_control = FormattedTextControl(menu_text)
+menu_control = FormattedTextControl(
+    menu_text
+)
 
 
 menu_window = Window(
@@ -114,22 +144,32 @@ menu_layout = Layout(
 
 
 menu_style = Style.from_dict({
-    "selected": "bold"
+
+    "selected":
+        "bold ansicyan"
+
 })
 
 
 menu_app = Application(
+
     layout=menu_layout,
+
     key_bindings=menu_kb,
+
     style=menu_style,
+
     full_screen=True
+
 )
 
 
 menu_app.run()
 
 
-selected_option = menu_options[menu_choice]
+selected_option = menu_options[
+    menu_choice
+]
 
 
 # =========================
@@ -138,9 +178,13 @@ selected_option = menu_options[menu_choice]
 
 print()
 
+mesh_name = input(
+    "Name of mesh: "
+)
 
-mesh_name = input("Name of mesh: ")
-mesh_password = input("Password: ")
+mesh_password = input(
+    "Password: "
+)
 
 
 # =========================
@@ -149,21 +193,37 @@ mesh_password = input("Password: ")
 
 if selected_option == "Start Mesh":
 
-    request = f"START|{mesh_name}|{mesh_password}"
+    request = (
+        f"START|"
+        f"{mesh_name}|"
+        f"{mesh_password}"
+    )
 
 else:
 
-    request = f"JOIN|{mesh_name}|{mesh_password}"
+    request = (
+        f"JOIN|"
+        f"{mesh_name}|"
+        f"{mesh_password}"
+    )
 
 
-client.send(request.encode())
+client.sendall(
+    (request + "\n").encode("utf-8")
+)
 
 
 # =========================
-# RECEIVE SERVER RESPONSE
+# RECEIVE INITIAL RESPONSE
 # =========================
 
-response = client.recv(1024).decode()
+reader = client.makefile(
+    "r",
+    encoding="utf-8"
+)
+
+
+response = reader.readline().rstrip("\n")
 
 
 parts = response.split("|", 1)
@@ -171,7 +231,11 @@ parts = response.split("|", 1)
 
 status = parts[0]
 
-message = parts[1] if len(parts) > 1 else ""
+message = (
+    parts[1]
+    if len(parts) > 1
+    else ""
+)
 
 
 if status == "ERROR":
@@ -184,52 +248,305 @@ if status == "ERROR":
     exit()
 
 
-print()
-print(message)
-
-
 # =========================
 # CHAT DATA
 # =========================
 
 messages = []
 
+member_count = 1
+
 
 # =========================
-# HEADER
+# ADD SERVER MESSAGE
 # =========================
 
-def header_text():
+def add_server_message(text):
+
+    messages.append(
+        (
+            "server",
+            None,
+            text
+        )
+    )
+
+
+# =========================
+# ADD CLIENT MESSAGE
+# =========================
+
+def add_client_message(
+    sender,
+    text
+):
+
+    messages.append(
+        (
+            "client",
+            sender,
+            text
+        )
+    )
+
+
+# =========================
+# ADD MEMBERS MESSAGE
+# =========================
+
+def add_members_message(
+    count,
+    members
+):
+
+    messages.append(
+        (
+            "members",
+            count,
+            members
+        )
+    )
+
+
+# =========================
+# CHAT FORMATTING
+# =========================
+
+def chat_text():
+
+    result = []
+
+    for kind, sender, text in messages:
+
+
+        # =========================
+        # SERVER
+        # =========================
+
+        if kind == "server":
+
+            result.append(
+                (
+                    "class:server",
+                    "[Server] "
+                )
+            )
+
+            result.append(
+                (
+                    "class:server-message",
+                    text
+                )
+            )
+
+            result.append(
+                ("", "\n\n")
+            )
+
+
+        # =========================
+        # CLIENT
+        # =========================
+
+        elif kind == "client":
+
+            if sender == username:
+
+                name_style = (
+                    "class:self-name"
+                )
+
+            else:
+
+                name_style = (
+                    "class:client-name"
+                )
+
+
+            result.append(
+                (
+                    name_style,
+                    f"[{sender}] "
+                )
+            )
+
+            result.append(
+                (
+                    "class:message",
+                    text
+                )
+            )
+
+            result.append(
+                ("", "\n\n")
+            )
+
+
+        # =========================
+        # MEMBERS
+        # =========================
+
+        elif kind == "members":
+
+            result.append(
+                (
+                    "class:server",
+                    "[Server] "
+                )
+            )
+
+            result.append(
+                (
+                    "class:server-message",
+                    f"Members ({sender})"
+                )
+            )
+
+            result.append(
+                ("", "\n")
+            )
+
+
+            for member in text:
+
+                result.append(
+                    (
+                        "class:member",
+                        f"    • {member}"
+                    )
+                )
+
+                result.append(
+                    ("", "\n")
+                )
+
+
+            result.append(
+                ("", "\n")
+            )
+
+
+    return FormattedText(result)
+
+
+# =========================
+# CHAT WINDOW
+# =========================
+
+# =========================
+# CHAT BUFFER
+# =========================
+
+chat_buffer = Buffer(
+    read_only=True
+)
+
+
+# =========================
+# CHAT CONTROL
+# =========================
+
+chat_control = BufferControl(
+    buffer=chat_buffer,
+    focusable=False,
+    show_cursor=False
+)
+
+
+# =========================
+# CHAT WINDOW
+# =========================
+
+chat_window = Window(
+    content=chat_control,
+    wrap_lines=True,
+    always_hide_cursor=True,
+    scroll_offsets=ScrollOffsets(
+        top=2,
+        bottom=2
+    )
+)
+
+
+# =========================
+# HEADER LEFT
+# =========================
+
+def header_left():
 
     return FormattedText([
-        ("class:title", "MSG"),
-        ("class:dim", "  •  "),
-        ("class:user", username),
-        ("class:dim", "  •  "),
-        ("class:mesh", mesh_name),
-        ("class:dim", "                              "),
-        ("class:online", "●"),
-        ("class:dim", " Connected"),
+
+        (
+            "class:title",
+            "MSG"
+        ),
+
+        (
+            "class:separator",
+            "  •  "
+        ),
+
+        (
+            "class:username",
+            username
+        ),
+
+        (
+            "class:separator",
+            "  •  "
+        ),
+
+        (
+            "class:mesh",
+            mesh_name
+        )
+
     ])
 
 
-header = Window(
-    content=FormattedTextControl(header_text),
-    height=2
-)
-
-
 # =========================
-# CHAT AREA
+# HEADER RIGHT
 # =========================
 
-chat_area = TextArea(
-    text="",
-    scrollbar=False,
-    wrap_lines=True,
-    read_only=True,
-    focusable=False
-)
+def header_right():
+
+    return FormattedText([
+
+        (
+            "class:count",
+            f"{member_count} "
+            f"{'member' if member_count == 1 else 'members'}"
+        ),
+
+        (
+            "class:separator",
+            "  •  "
+        ),
+
+        (
+            "class:connected",
+            "● Connected"
+        )
+
+    ])
+
+
+header = VSplit([
+
+    Window(
+        content=FormattedTextControl(
+            header_left
+        )
+    ),
+
+    Window(
+        content=FormattedTextControl(
+            header_right
+        ),
+        align="RIGHT"
+    )
+
+])
 
 
 # =========================
@@ -237,79 +554,77 @@ chat_area = TextArea(
 # =========================
 
 input_field = TextArea(
+
     height=1,
+
     prompt=">> ",
+
     multiline=False
+
 )
 
 
 # =========================
-# UPDATE CHAT
-# =========================
-
-def update_chat():
-
-    chat_area.text = "\n\n".join(messages)
-
-    chat_area.buffer.cursor_position = (
-        len(chat_area.buffer.text)
-    )
-
-
-# =========================
-# RECEIVE MESSAGES
-# =========================
-
-def receive_messages():
-
-    while True:
-
-        try:
-
-            data = client.recv(1024)
-
-            if not data:
-                break
-
-            message = data.decode()
-
-            messages.append(message)
-
-            update_chat()
-
-            app.invalidate()
-
-        except:
-
-            break
-
-
-# =========================
-# SEND MESSAGE
+# SEND
 # =========================
 
 def send_message():
 
     message = input_field.text.strip()
 
+
     if not message:
         return
 
 
     # =========================
-    # EXIT
+    # /exit
     # =========================
 
     if message == "/exit":
 
         try:
-            client.send("/exit".encode())
+
+            client.sendall(
+                b"CMD|exit\n"
+            )
+
         except:
+
             pass
 
-        client.close()
+
+        try:
+            client.close()
+
+        except:
+
+            pass
+
 
         app.exit()
+
+        return
+
+
+    # =========================
+    # /members
+    # =========================
+
+    if message == "/members":
+
+        try:
+
+            client.sendall(
+                b"CMD|members\n"
+            )
+
+        except:
+
+            pass
+
+
+        input_field.text = ""
 
         return
 
@@ -318,13 +633,26 @@ def send_message():
     # NORMAL MESSAGE
     # =========================
 
-    client.send(message.encode())
+    try:
+
+        client.sendall(
+            (
+                "MSG|"
+                + message
+                + "\n"
+            ).encode("utf-8")
+        )
+
+    except:
+
+        pass
+
 
     input_field.text = ""
 
 
 # =========================
-# CHAT KEYBINDS
+# KEYBINDINGS
 # =========================
 
 chat_kb = KeyBindings()
@@ -342,44 +670,85 @@ def _(event):
 
 style = Style.from_dict({
 
-    "title": "bold",
+    # Header
+    "title":
+        "bold",
 
-    "user": "bold",
+    "username":
+        "bold ansicyan",
 
-    "mesh": "bold",
+    "mesh":
+        "bold",
 
-    "online": "bold",
+    "separator":
+        "ansibrightblack",
+
+    "count":
+        "ansicyan",
+
+    "connected":
+        "bold ansigreen",
+
+
+    # Server
+    "server":
+        "bold ansiyellow",
+
+    "server-message":
+        "ansiyellow",
+
+
+    # Clients
+    "client-name":
+        "bold ansicyan",
+
+    "self-name":
+        "bold ansigreen",
+
+    "message":
+        "",
+
+
+    # Members
+    "member":
+        "ansiyellow",
 
 })
 
 
 # =========================
-# CHAT LAYOUT
+# LAYOUT
 # =========================
 
 root_container = HSplit([
 
+    # Header
     header,
 
     Window(height=1),
 
-    chat_area,
+    # Messages
+    chat_window,
 
     Window(height=1),
 
+    # Input
     input_field
 
 ])
 
 
 layout = Layout(
+
     root_container,
+
     focused_element=input_field
+
 )
 
 
 # =========================
-# CHAT APPLICATION
+# APPLICATION
 # =========================
 
 app = Application(
@@ -396,7 +765,134 @@ app = Application(
 
 
 # =========================
-# RECEIVE THREAD
+# RECEIVE MESSAGES
+# =========================
+
+def receive_messages():
+
+    global member_count
+
+
+    while True:
+
+        try:
+
+            line = reader.readline()
+
+            if not line:
+                break
+
+
+            data = line.rstrip("\n")
+
+            parts = data.split("|", 2)
+
+            message_type = parts[0]
+
+
+            # =========================
+            # SERVER MESSAGE
+            # =========================
+
+            if message_type == "SERVER":
+
+                text = (
+                    parts[1]
+                    if len(parts) > 1
+                    else ""
+                )
+
+                add_server_message(text)
+
+
+            # =========================
+            # CHAT MESSAGE
+            # =========================
+
+            elif message_type == "CHAT":
+
+                if len(parts) < 3:
+                    continue
+
+                sender = parts[1]
+                text = parts[2]
+
+                add_client_message(
+                    sender,
+                    text
+                )
+
+
+            # =========================
+            # MEMBER COUNT
+            # =========================
+
+            elif message_type == "COUNT":
+
+                if len(parts) < 2:
+                    continue
+
+                try:
+
+                    member_count = int(
+                        parts[1]
+                    )
+
+                except:
+
+                    pass
+
+
+            # =========================
+            # MEMBERS
+            # =========================
+
+            elif message_type == "MEMBERS":
+
+                if len(parts) < 2:
+                    continue
+
+                try:
+
+                    count = int(
+                        parts[1]
+                    )
+
+                except:
+
+                    count = 0
+
+
+                members = []
+
+
+                if len(parts) >= 3:
+
+                    members = [
+                        name
+                        for name
+                        in parts[2].split("|")
+                        if name
+                    ]
+
+
+                add_members_message(
+                    count,
+                    members
+                )
+
+
+            # Redraw UI
+            app.invalidate()
+
+
+        except:
+
+            break
+
+
+# =========================
+# START RECEIVER
 # =========================
 
 threading.Thread(
@@ -409,7 +905,7 @@ threading.Thread(
 
 
 # =========================
-# START CHAT
+# START APP
 # =========================
 
 app.run()
