@@ -2,6 +2,7 @@ import socket
 import threading
 
 clients = []
+users = {}
 
 server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 
@@ -21,6 +22,12 @@ def broadcast(message):
 def handle_client(client, address):
     print("Client connected", address)
 
+    username = client.recv(1024).decode()
+
+    users[client] = username
+
+    print("Username:", username)
+
     while True:
         try:
             message = client.recv(1024)
@@ -28,17 +35,23 @@ def handle_client(client, address):
             if not message:
                 break
 
-            print("Client:", message.decode())
+            message = message.decode()
 
-            broadcast(message)
+            print(username + ":", message)
+
+            full_message = f"[{username}]: {message}"
+
+            broadcast(full_message.encode())
 
         except:
             break
 
     clients.remove(client)
+    del users[client]
+
     client.close()
 
-    print("Client disconnected", address)
+    print("Client disconnected", username)
 
 
 while True:

@@ -5,20 +5,31 @@ client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 
 client.connect(("127.0.0.1", 5000))
 
+username = input("Enter your username: ")
+
+client.send(username.encode())
+
 print("Connected to server!")
 
 
 def receive_messages():
     while True:
-        message = client.recv(1024)
+        try:
+            message = client.recv(1024)
 
-        if not message:
+            if not message:
+                break
+
+            print("\n" + message.decode())
+
+        except:
             break
 
-        print("\nServer:", message.decode())
 
-
-threading.Thread(target=receive_messages, daemon=True).start()
+threading.Thread(
+    target=receive_messages,
+    daemon=True
+).start()
 
 
 while True:
