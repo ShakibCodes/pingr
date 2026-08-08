@@ -1,60 +1,80 @@
 import socket
 import threading
 
+
 from prompt_toolkit.application import Application
+
 from prompt_toolkit.layout import (
+    Dimension,
     Layout,
     HSplit,
     VSplit,
-    Window,
-    ScrollOffsets
-)
-from prompt_toolkit.layout.controls import (
-    FormattedTextControl,
-    BufferControl
+    Window
 )
 
-from prompt_toolkit.buffer import Buffer
+from prompt_toolkit.layout.controls import (
+    FormattedTextControl
+)
+
 from prompt_toolkit.formatted_text import (
     FormattedText
 )
-from prompt_toolkit.widgets import TextArea
-from prompt_toolkit.styles import Style
-from prompt_toolkit.key_binding import KeyBindings
+
+from prompt_toolkit.widgets import (
+    Frame,
+    TextArea
+)
+
+from prompt_toolkit.styles import (
+    Style
+)
+
+from prompt_toolkit.key_binding import (
+    KeyBindings
+)
 
 
-# =========================
+# ============================================================
 # USERNAME
-# =========================
+# ============================================================
 
-username = input("Enter your name: ")
+username = input(
+    "Enter your name: "
+)
 
 
-# =========================
+# ============================================================
 # CONNECT
-# =========================
+# ============================================================
 
 client = socket.socket(
     socket.AF_INET,
     socket.SOCK_STREAM
 )
 
+
 client.connect(
     ("127.0.0.1", 5000)
 )
 
 
-# Send username
+# ============================================================
+# SEND USERNAME
+# ============================================================
+
 client.sendall(
-    (username + "\n").encode("utf-8")
+    (
+        username + "\n"
+    ).encode("utf-8")
 )
 
 
-# =========================
+# ============================================================
 # MESH MENU
-# =========================
+# ============================================================
 
 menu_choice = 0
+
 
 menu_options = [
     "Start Mesh",
@@ -66,13 +86,17 @@ def menu_text():
 
     result = []
 
-    for i, option in enumerate(menu_options):
+
+    for i, option in enumerate(
+        menu_options
+    ):
 
         prefix = (
             "> "
             if i == menu_choice
             else "  "
         )
+
 
         result.append(
             (
@@ -83,13 +107,17 @@ def menu_text():
             )
         )
 
+
         if i != len(menu_options) - 1:
 
             result.append(
                 ("", "\n")
             )
 
-    return FormattedText(result)
+
+    return FormattedText(
+        result
+    )
 
 
 menu_control = FormattedTextControl(
@@ -110,9 +138,11 @@ def _(event):
 
     global menu_choice
 
+
     menu_choice = (
         menu_choice - 1
     ) % len(menu_options)
+
 
     event.app.invalidate()
 
@@ -122,9 +152,11 @@ def _(event):
 
     global menu_choice
 
+
     menu_choice = (
         menu_choice + 1
     ) % len(menu_options)
+
 
     event.app.invalidate()
 
@@ -172,24 +204,26 @@ selected_option = menu_options[
 ]
 
 
-# =========================
+# ============================================================
 # MESH INFORMATION
-# =========================
+# ============================================================
 
 print()
+
 
 mesh_name = input(
     "Name of mesh: "
 )
+
 
 mesh_password = input(
     "Password: "
 )
 
 
-# =========================
+# ============================================================
 # SEND MESH REQUEST
-# =========================
+# ============================================================
 
 if selected_option == "Start Mesh":
 
@@ -209,13 +243,15 @@ else:
 
 
 client.sendall(
-    (request + "\n").encode("utf-8")
+    (
+        request + "\n"
+    ).encode("utf-8")
 )
 
 
-# =========================
+# ============================================================
 # RECEIVE INITIAL RESPONSE
-# =========================
+# ============================================================
 
 reader = client.makefile(
     "r",
@@ -223,13 +259,19 @@ reader = client.makefile(
 )
 
 
-response = reader.readline().rstrip("\n")
+response = reader.readline().rstrip(
+    "\n"
+)
 
 
-parts = response.split("|", 1)
+parts = response.split(
+    "|",
+    1
+)
 
 
 status = parts[0]
+
 
 message = (
     parts[1]
@@ -241,25 +283,36 @@ message = (
 if status == "ERROR":
 
     print()
-    print("Error:", message)
+    print(
+        "Error:",
+        message
+    )
 
     client.close()
 
     exit()
 
 
-# =========================
+# ============================================================
 # CHAT DATA
-# =========================
+# ============================================================
 
 messages = []
+
 
 member_count = 1
 
 
-# =========================
+# ============================================================
+# SCROLL STATE
+# ============================================================
+
+follow_bottom = True
+
+
+# ============================================================
 # ADD SERVER MESSAGE
-# =========================
+# ============================================================
 
 def add_server_message(text):
 
@@ -272,9 +325,9 @@ def add_server_message(text):
     )
 
 
-# =========================
+# ============================================================
 # ADD CLIENT MESSAGE
-# =========================
+# ============================================================
 
 def add_client_message(
     sender,
@@ -290,9 +343,9 @@ def add_client_message(
     )
 
 
-# =========================
+# ============================================================
 # ADD MEMBERS MESSAGE
-# =========================
+# ============================================================
 
 def add_members_message(
     count,
@@ -308,20 +361,270 @@ def add_members_message(
     )
 
 
-# =========================
-# CHAT FORMATTING
-# =========================
+# ============================================================
+# BUILD CHAT TEXT
+# ============================================================
 
-def chat_text():
+def build_chat_text():
 
     result = []
+
 
     for kind, sender, text in messages:
 
 
-        # =========================
+        # ====================================================
         # SERVER
-        # =========================
+        # ====================================================
+
+        if kind == "server":
+
+            result.append(
+                (
+                    "class:server",
+                    "[Server] "
+                )
+            )
+
+
+            result.append(
+                (
+                    "class:server-message",
+                    text
+                )
+            )
+
+
+            result.append(
+                (
+                    "",
+                    "\n\n"
+                )
+            )
+
+
+        # ====================================================
+        # CLIENT
+        # ====================================================
+
+        elif kind == "client":
+
+            if sender == username:
+
+                name_style = (
+                    "class:self-name"
+                )
+
+            else:
+
+                name_style = (
+                    "class:client-name"
+                )
+
+
+            result.append(
+                (
+                    name_style,
+                    f"[{sender}] "
+                )
+            )
+
+
+            result.append(
+                (
+                    "class:message",
+                    text
+                )
+            )
+
+
+            result.append(
+                (
+                    "",
+                    "\n\n"
+                )
+            )
+
+
+        # ====================================================
+        # MEMBERS
+        # ====================================================
+
+        elif kind == "members":
+
+            result.append(
+                (
+                    "class:server",
+                    "[Server] "
+                )
+            )
+
+
+            result.append(
+                (
+                    "class:server-message",
+                    f"Members ({sender})"
+                )
+            )
+
+
+            result.append(
+                (
+                    "",
+                    "\n"
+                )
+            )
+
+
+            for member in text:
+
+                result.append(
+                    (
+                        "class:member",
+                        f"    • {member}"
+                    )
+                )
+
+
+                result.append(
+                    (
+                        "",
+                        "\n"
+                    )
+                )
+
+
+            result.append(
+                (
+                    "",
+                    "\n"
+                )
+            )
+
+
+    return FormattedText(
+        result
+    )
+
+
+# ============================================================
+# PLAIN CHAT TEXT
+#
+# TextArea needs actual text so it can scroll naturally.
+# ============================================================
+
+def build_plain_chat():
+
+    if not messages:
+
+        return (
+            "No messages yet.\n\n"
+            "Send a message to start the conversation."
+        )
+
+
+    lines = []
+
+
+    for kind, sender, text in messages:
+
+
+        # ====================================================
+        # SERVER
+        # ====================================================
+
+        if kind == "server":
+
+            lines.append(
+                "[Server] " + text
+            )
+
+            lines.append("")
+
+
+        # ====================================================
+        # CLIENT
+        # ====================================================
+
+        elif kind == "client":
+
+            lines.append(
+                f"[{sender}] {text}"
+            )
+
+            lines.append("")
+
+
+        # ====================================================
+        # MEMBERS
+        # ====================================================
+
+        elif kind == "members":
+
+            lines.append(
+                f"[Server] Members ({sender})"
+            )
+
+            lines.append("")
+
+
+            for member in text:
+
+                lines.append(
+                    f"    • {member}"
+                )
+
+
+            lines.append("")
+
+
+    return "\n".join(
+        lines
+    )
+
+
+# ============================================================
+# CHAT AREA
+# ============================================================
+
+chat_area = TextArea(
+
+    text="",
+
+    # Reserve all space not used by the header and input field.  Without an
+    # expanding height, prompt_toolkit can size this area to its content.
+    height=Dimension(weight=1),
+
+    # Keep the history visibly scrollable as it grows.
+    scrollbar=True,
+
+    wrap_lines=True,
+
+    read_only=True,
+
+    focusable=False
+
+)
+
+
+# ============================================================
+# CHAT COLORS
+#
+# The chat itself is displayed as plain text inside TextArea.
+# We redraw the visible lines using an overlay control below.
+# ============================================================
+
+def chat_overlay():
+
+    result = []
+
+
+    for kind, sender, text in messages:
+
+
+        # ====================================================
+        # SERVER
+        # ====================================================
 
         if kind == "server":
 
@@ -344,9 +647,9 @@ def chat_text():
             )
 
 
-        # =========================
+        # ====================================================
         # CLIENT
-        # =========================
+        # ====================================================
 
         elif kind == "client":
 
@@ -382,9 +685,9 @@ def chat_text():
             )
 
 
-        # =========================
+        # ====================================================
         # MEMBERS
-        # =========================
+        # ====================================================
 
         elif kind == "members":
 
@@ -426,51 +729,31 @@ def chat_text():
             )
 
 
-    return FormattedText(result)
-
-
-# =========================
-# CHAT WINDOW
-# =========================
-
-# =========================
-# CHAT BUFFER
-# =========================
-
-chat_buffer = Buffer(
-    read_only=True
-)
-
-
-# =========================
-# CHAT CONTROL
-# =========================
-
-chat_control = BufferControl(
-    buffer=chat_buffer,
-    focusable=False,
-    show_cursor=False
-)
-
-
-# =========================
-# CHAT WINDOW
-# =========================
-
-chat_window = Window(
-    content=chat_control,
-    wrap_lines=True,
-    always_hide_cursor=True,
-    scroll_offsets=ScrollOffsets(
-        top=2,
-        bottom=2
+    return FormattedText(
+        result
     )
+
+
+# ============================================================
+# CHAT DISPLAY
+# ============================================================
+
+chat_display = Window(
+
+    content=FormattedTextControl(
+        chat_overlay
+    ),
+
+    wrap_lines=True,
+
+    always_hide_cursor=True
+
 )
 
 
-# =========================
+# ============================================================
 # HEADER LEFT
-# =========================
+# ============================================================
 
 def header_left():
 
@@ -478,7 +761,7 @@ def header_left():
 
         (
             "class:title",
-            "MSG"
+            "[ MSG ]"
         ),
 
         (
@@ -504,9 +787,9 @@ def header_left():
     ])
 
 
-# =========================
+# ============================================================
 # HEADER RIGHT
-# =========================
+# ============================================================
 
 def header_right():
 
@@ -543,43 +826,89 @@ header = VSplit([
         content=FormattedTextControl(
             header_right
         ),
+
         align="RIGHT"
+
     )
 
 ])
 
 
-# =========================
+# ============================================================
+# NAVIGATION HELP
+# ============================================================
+
+def navigation_help():
+
+    return FormattedText([
+        ("class:help-key", "Enter"),
+        ("class:help-text", " send   "),
+        ("class:help-key", "PgUp/PgDn"),
+        ("class:help-text", " scroll   "),
+        ("class:help-key", "Home/End"),
+        ("class:help-text", " top/bottom   "),
+        ("class:help-key", "/members"),
+        ("class:help-text", " list members   "),
+        ("class:help-key", "/exit"),
+        ("class:help-text", " disconnect")
+    ])
+
+
+help_bar = Window(
+
+    content=FormattedTextControl(
+        navigation_help
+    ),
+
+    height=1,
+
+    align="CENTER",
+
+    style="class:help-bar"
+
+)
+
+
+# ============================================================
 # INPUT
-# =========================
+# ============================================================
 
 input_field = TextArea(
 
     height=1,
 
-    prompt=">> ",
+    prompt=[
+        ("class:input-prompt", "Send > ")
+    ],
 
-    multiline=False
+    multiline=False,
+
+    wrap_lines=False,
+
+    style="class:input"
 
 )
 
 
-# =========================
-# SEND
-# =========================
+# ============================================================
+# SEND MESSAGE
+# ============================================================
 
 def send_message():
 
-    message = input_field.text.strip()
+    message = (
+        input_field.text.strip()
+    )
 
 
     if not message:
+
         return
 
 
-    # =========================
+    # ========================================================
     # /exit
-    # =========================
+    # ========================================================
 
     if message == "/exit":
 
@@ -595,6 +924,7 @@ def send_message():
 
 
         try:
+
             client.close()
 
         except:
@@ -607,9 +937,9 @@ def send_message():
         return
 
 
-    # =========================
+    # ========================================================
     # /members
-    # =========================
+    # ========================================================
 
     if message == "/members":
 
@@ -629,9 +959,9 @@ def send_message():
         return
 
 
-    # =========================
+    # ========================================================
     # NORMAL MESSAGE
-    # =========================
+    # ========================================================
 
     try:
 
@@ -651,9 +981,114 @@ def send_message():
     input_field.text = ""
 
 
-# =========================
-# KEYBINDINGS
-# =========================
+# ============================================================
+# SCROLL CONTROL
+# ============================================================
+
+def scroll_up():
+
+    global follow_bottom
+
+    follow_bottom = False
+
+    # Move the chat buffer backwards.
+    #
+    # This is mainly used to tell the UI that the user
+    # wants to inspect older messages.
+
+    try:
+
+        chat_area.buffer.cursor_position = max(
+            0,
+            chat_area.buffer.cursor_position - 500
+        )
+
+    except:
+
+        pass
+
+
+def scroll_down():
+
+    global follow_bottom
+
+    try:
+
+        chat_area.buffer.cursor_position = min(
+            len(chat_area.buffer.text),
+            chat_area.buffer.cursor_position + 500
+        )
+
+    except:
+
+        pass
+
+
+    if (
+        chat_area.buffer.cursor_position
+        >= len(chat_area.buffer.text)
+    ):
+
+        follow_bottom = True
+
+
+def scroll_top():
+
+    global follow_bottom
+
+    follow_bottom = False
+
+    try:
+
+        chat_area.buffer.cursor_position = 0
+
+    except:
+
+        pass
+
+
+def scroll_bottom():
+
+    global follow_bottom
+
+    follow_bottom = True
+
+    try:
+
+        chat_area.buffer.cursor_position = (
+            len(chat_area.buffer.text)
+        )
+
+    except:
+
+        pass
+
+
+# ============================================================
+# UPDATE CHAT
+# ============================================================
+
+def update_chat():
+
+    global follow_bottom
+
+
+    chat_area.text = build_plain_chat()
+
+
+    if follow_bottom:
+
+        chat_area.buffer.cursor_position = (
+            len(chat_area.buffer.text)
+        )
+
+
+    app.invalidate()
+
+
+# ============================================================
+# KEYBOARD
+# ============================================================
 
 chat_kb = KeyBindings()
 
@@ -664,21 +1099,64 @@ def _(event):
     send_message()
 
 
-# =========================
+# ============================================================
+# PAGE UP
+# ============================================================
+
+@chat_kb.add("pageup")
+def _(event):
+
+    scroll_up()
+
+
+# ============================================================
+# PAGE DOWN
+# ============================================================
+
+@chat_kb.add("pagedown")
+def _(event):
+
+    scroll_down()
+
+
+# ============================================================
+# HOME
+# ============================================================
+
+@chat_kb.add("home")
+def _(event):
+
+    scroll_top()
+
+
+# ============================================================
+# END
+# ============================================================
+
+@chat_kb.add("end")
+def _(event):
+
+    scroll_bottom()
+
+
+# ============================================================
 # STYLE
-# =========================
+# ============================================================
 
 style = Style.from_dict({
 
-    # Header
+    # ========================================================
+    # HEADER
+    # ========================================================
+
     "title":
-        "bold",
+        "bold ansiwhite",
 
     "username":
         "bold ansicyan",
 
     "mesh":
-        "bold",
+        "bold ansiwhite",
 
     "separator":
         "ansibrightblack",
@@ -689,8 +1167,32 @@ style = Style.from_dict({
     "connected":
         "bold ansigreen",
 
+    "root":
+        "bg:#0b0f14",
 
-    # Server
+    "frame.border":
+        "ansibrightblack",
+
+    "frame.label":
+        "bold ansicyan",
+
+    "chat":
+        "bg:#10151c",
+
+    "scrollbar.background":
+        "bg:#10151c",
+
+    "scrollbar.button":
+        "bg:#3b82f6",
+
+    "scrollbar.arrow":
+        "fg:#93c5fd",
+
+
+    # ========================================================
+    # SERVER
+    # ========================================================
+
     "server":
         "bold ansiyellow",
 
@@ -698,7 +1200,10 @@ style = Style.from_dict({
         "ansiyellow",
 
 
-    # Clients
+    # ========================================================
+    # CLIENTS
+    # ========================================================
+
     "client-name":
         "bold ansicyan",
 
@@ -709,33 +1214,95 @@ style = Style.from_dict({
         "",
 
 
-    # Members
+    # ========================================================
+    # MEMBERS
+    # ========================================================
+
     "member":
         "ansiyellow",
+
+
+    # ========================================================
+    # COMPOSER AND HELP
+    # ========================================================
+
+    "input":
+        "bg:#172033 fg:ansiwhite",
+
+    "input-prompt":
+        "bold ansicyan",
+
+    "help-bar":
+        "bg:#10151c",
+
+    "help-key":
+        "bold ansicyan",
+
+    "help-text":
+        "ansibrightblack"
 
 })
 
 
-# =========================
+# ============================================================
 # LAYOUT
-# =========================
+# ============================================================
 
 root_container = HSplit([
 
-    # Header
+    # --------------------------------------------------------
+    # HEADER
+    # --------------------------------------------------------
+
     header,
 
+
+    # --------------------------------------------------------
+    # SMALL GAP
+    # --------------------------------------------------------
+
+    Window(
+        char="-",
+        height=1,
+        style="class:separator"
+    ),
+
+
+    # --------------------------------------------------------
+    # CHAT
+    # --------------------------------------------------------
+
+    Frame(
+        body=chat_area,
+        title=" Messages "
+    ),
+
+
+    # --------------------------------------------------------
+    # SMALL GAP
+    # --------------------------------------------------------
+
     Window(height=1),
 
-    # Messages
-    chat_window,
 
-    Window(height=1),
+    # --------------------------------------------------------
+    # INPUT
+    # --------------------------------------------------------
 
-    # Input
-    input_field
+    Frame(
+        body=input_field,
+        title=" Compose ",
+        height=3
+    ),
 
-])
+
+    # --------------------------------------------------------
+    # SHORTCUTS
+    # --------------------------------------------------------
+
+    help_bar
+
+], style="class:root")
 
 
 layout = Layout(
@@ -747,9 +1314,9 @@ layout = Layout(
 )
 
 
-# =========================
+# ============================================================
 # APPLICATION
-# =========================
+# ============================================================
 
 app = Application(
 
@@ -759,14 +1326,18 @@ app = Application(
 
     style=style,
 
-    full_screen=True
+    # Use the terminal's alternate screen buffer and allow mouse-wheel/
+    # scrollbar interaction with the chat history.
+    full_screen=True,
+
+    mouse_support=True
 
 )
 
 
-# =========================
+# ============================================================
 # RECEIVE MESSAGES
-# =========================
+# ============================================================
 
 def receive_messages():
 
@@ -779,20 +1350,29 @@ def receive_messages():
 
             line = reader.readline()
 
+
             if not line:
+
                 break
 
 
-            data = line.rstrip("\n")
+            data = line.rstrip(
+                "\n"
+            )
 
-            parts = data.split("|", 2)
+
+            parts = data.split(
+                "|",
+                2
+            )
+
 
             message_type = parts[0]
 
 
-            # =========================
+            # =================================================
             # SERVER MESSAGE
-            # =========================
+            # =================================================
 
             if message_type == "SERVER":
 
@@ -802,20 +1382,26 @@ def receive_messages():
                     else ""
                 )
 
-                add_server_message(text)
+
+                add_server_message(
+                    text
+                )
 
 
-            # =========================
+            # =================================================
             # CHAT MESSAGE
-            # =========================
+            # =================================================
 
             elif message_type == "CHAT":
 
                 if len(parts) < 3:
+
                     continue
+
 
                 sender = parts[1]
                 text = parts[2]
+
 
                 add_client_message(
                     sender,
@@ -823,14 +1409,16 @@ def receive_messages():
                 )
 
 
-            # =========================
+            # =================================================
             # MEMBER COUNT
-            # =========================
+            # =================================================
 
             elif message_type == "COUNT":
 
                 if len(parts) < 2:
+
                     continue
+
 
                 try:
 
@@ -843,14 +1431,16 @@ def receive_messages():
                     pass
 
 
-            # =========================
+            # =================================================
             # MEMBERS
-            # =========================
+            # =================================================
 
             elif message_type == "MEMBERS":
 
                 if len(parts) < 2:
+
                     continue
+
 
                 try:
 
@@ -869,10 +1459,14 @@ def receive_messages():
                 if len(parts) >= 3:
 
                     members = [
+
                         name
+
                         for name
                         in parts[2].split("|")
+
                         if name
+
                     ]
 
 
@@ -882,8 +1476,11 @@ def receive_messages():
                 )
 
 
-            # Redraw UI
-            app.invalidate()
+            # =================================================
+            # UPDATE UI
+            # =================================================
+
+            update_chat()
 
 
         except:
@@ -891,9 +1488,9 @@ def receive_messages():
             break
 
 
-# =========================
-# START RECEIVER
-# =========================
+# ============================================================
+# START RECEIVER THREAD
+# ============================================================
 
 threading.Thread(
 
@@ -904,8 +1501,8 @@ threading.Thread(
 ).start()
 
 
-# =========================
-# START APP
-# =========================
+# ============================================================
+# START APPLICATION
+# ============================================================
 
 app.run()

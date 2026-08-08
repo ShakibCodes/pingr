@@ -47,7 +47,10 @@ server.setsockopt(
     1
 )
 
-server.bind((HOST, PORT))
+server.bind(
+    (HOST, PORT)
+)
+
 server.listen()
 
 
@@ -62,6 +65,7 @@ print("Waiting for connections...")
 def send(client, message):
 
     try:
+
         client.sendall(
             (message + "\n").encode("utf-8")
         )
@@ -74,7 +78,11 @@ def send(client, message):
 # BROADCAST
 # =========================
 
-def broadcast(mesh_name, message, exclude=None):
+def broadcast(
+    mesh_name,
+    message,
+    exclude=None
+):
 
     with mesh_lock:
 
@@ -90,7 +98,10 @@ def broadcast(mesh_name, message, exclude=None):
         if client == exclude:
             continue
 
-        send(client, message)
+        send(
+            client,
+            message
+        )
 
 
 # =========================
@@ -145,18 +156,23 @@ def remove_client(
 
             mesh = meshes[mesh_name]
 
+
             if client in mesh["clients"]:
 
                 del mesh["clients"][client]
 
                 left_mesh = True
 
+
             remaining_count = len(
                 mesh["clients"]
             )
 
 
-            # Delete empty mesh
+            # =========================
+            # DELETE EMPTY MESH
+            # =========================
+
             if remaining_count == 0:
 
                 del meshes[mesh_name]
@@ -175,11 +191,14 @@ def remove_client(
             f"SERVER|{username} left the mesh"
         )
 
-        send_member_count(mesh_name)
+        send_member_count(
+            mesh_name
+        )
 
         print(
             f"{username} left mesh: {mesh_name}"
         )
+
 
     elif left_mesh and mesh_deleted:
 
@@ -194,7 +213,6 @@ def remove_client(
 
     try:
         client.close()
-
     except:
         pass
 
@@ -203,20 +221,27 @@ def remove_client(
 # HANDLE CLIENT
 # =========================
 
-def handle_client(client, address):
+def handle_client(
+    client,
+    address
+):
 
     print(
         "Client connected:",
         address
     )
 
+
     username = None
     mesh_name = None
 
+
     try:
 
-        # Create a line-based reader.
-        # Every message ends with \n.
+        # =========================
+        # LINE READER
+        # =========================
+
         reader = client.makefile(
             "r",
             encoding="utf-8"
@@ -232,7 +257,9 @@ def handle_client(client, address):
         if not line:
             return
 
+
         username = line.rstrip("\n")
+
 
         print(
             "Username:",
@@ -251,9 +278,15 @@ def handle_client(client, address):
             if not line:
                 return
 
+
             data = line.rstrip("\n")
 
-            parts = data.split("|", 2)
+
+            parts = data.split(
+                "|",
+                2
+            )
+
 
             command = parts[0]
 
@@ -289,10 +322,13 @@ def handle_client(client, address):
                         exists = False
 
                         meshes[requested_mesh] = {
+
                             "password": password,
+
                             "clients": {
                                 client: username
                             }
+
                         }
 
 
@@ -307,6 +343,7 @@ def handle_client(client, address):
 
 
                 mesh_name = requested_mesh
+
 
                 print(
                     f"{username} created mesh: {mesh_name}"
@@ -325,7 +362,10 @@ def handle_client(client, address):
                 )
 
 
-                send_member_count(mesh_name)
+                send_member_count(
+                    mesh_name
+                )
+
 
                 break
 
@@ -406,15 +446,24 @@ def handle_client(client, address):
                 )
 
 
-                # Tell everyone
+                # =========================
+                # TELL EVERYONE
+                # =========================
+
                 broadcast(
                     mesh_name,
                     f"SERVER|{username} joined the mesh"
                 )
 
 
-                # Update count
-                send_member_count(mesh_name)
+                # =========================
+                # UPDATE COUNT
+                # =========================
+
+                send_member_count(
+                    mesh_name
+                )
+
 
                 break
 
@@ -437,6 +486,7 @@ def handle_client(client, address):
 
             if not line:
                 break
+
 
             data = line.rstrip("\n")
 
@@ -461,6 +511,7 @@ def handle_client(client, address):
                         if mesh_name not in meshes:
                             continue
 
+
                         members = list(
                             meshes[
                                 mesh_name
@@ -469,9 +520,11 @@ def handle_client(client, address):
 
 
                     # Send ONLY to this client
+
                     member_data = "|".join(
                         members
                     )
+
 
                     send(
                         client,
