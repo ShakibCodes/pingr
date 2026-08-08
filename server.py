@@ -22,14 +22,23 @@ def handle_client(client, address):
     print("Client connected", address)
 
     while True:
-        message = client.recv(1024)
+        try:
+            message = client.recv(1024)
 
-        if not message:
+            if not message:
+                break
+
+            print("Client:", message.decode())
+
+            broadcast(message)
+
+        except:
             break
 
-        print("Client:", message.decode())
+    clients.remove(client)
+    client.close()
 
-        broadcast(message)
+    print("Client disconnected", address)
 
 
 while True:
