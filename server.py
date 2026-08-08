@@ -16,6 +16,11 @@ PORT = 5000
 
 meshes = {}
 
+
+# Usernames are unique across all currently connected clients.  Store their
+# case-folded form so that "Shakib" and "shakib" cannot impersonate each other.
+active_usernames = set()
+
 # Structure:
 #
 # meshes = {
@@ -30,6 +35,54 @@ meshes = {}
 
 
 mesh_lock = threading.Lock()
+
+
+MAX_USERNAME_LENGTH = 24
+MAX_MESH_NAME_LENGTH = 32
+MAX_PASSWORD_LENGTH = 128
+MAX_MESSAGE_LENGTH = 2_000
+
+
+def validate_text(value, label, maximum_length, allow_empty=False):
+
+    """Return a safe protocol value or a short validation error."""
+
+    value = value.strip()
+
+
+    if not value and not allow_empty:
+
+        return None, f"{label} cannot be empty"
+
+
+    if len(value) > maximum_length:
+
+        return None, f"{label} must be {maximum_length} characters or fewer"
+
+
+    if "|" in value or any(ord(character) < 32 for character in value):
+
+        return None, f"{label} contains unsupported characters"
+
+
+    return value, None
+
+
+def find_mesh_name(requested_mesh):
+
+    """Find a mesh case-insensitively while preserving its display name."""
+
+    requested_key = requested_mesh.casefold()
+
+
+    for existing_name in meshes:
+
+        if existing_name.casefold() == requested_key:
+
+            return existing_name
+
+
+    return None
 
 
 # =========================
@@ -234,6 +287,7 @@ def handle_client(
 
     username = None
     mesh_name = None
+    username_reserved = False
 
 
     try:
@@ -258,7 +312,55 @@ def handle_client(
             return
 
 
-        username = line.rstrip("\n")
+        username, error = validate_text(
+            line.rstrip("\n"),
+            "Username",
+            MAX_USERNAME_LENGTH
+        )
+
+
+        if error:
+
+            send(
+                client,
+                f"ERROR|{error}"
+            )
+
+            return
+
+
+        with mesh_lock:
+
+            username_key = username.casefold()
+
+
+            if username_key in active_usernames:
+
+                username_taken = True
+
+            else:
+
+                username_taken = False
+                active_usernames.add(
+                    username_key
+                )
+                username_reserved = True
+
+
+        if username_taken:
+
+            send(
+                client,
+                "ERROR|Username is already in use"
+            )
+
+            return
+
+
+        send(
+            client,
+            "USERNAME_OK"
+        )
 
 
         print(
@@ -307,13 +409,32 @@ def handle_client(
                     continue
 
 
-                requested_mesh = parts[1]
-                password = parts[2]
+                requested_mesh, mesh_error = validate_text(
+                    parts[1],
+                    "Mesh name",
+                    MAX_MESH_NAME_LENGTH
+                )
+
+                password, password_error = validate_text(
+                    parts[2],
+                    "Password",
+                    MAX_PASSWORD_LENGTH
+                )
+
+
+                if mesh_error or password_error:
+
+                    send(
+                        client,
+                        f"ERROR|{mesh_error or password_error}"
+                    )
+
+                    continue
 
 
                 with mesh_lock:
 
-                    if requested_mesh in meshes:
+                    if find_mesh_name(requested_mesh):
 
                         exists = True
 
@@ -386,19 +507,43 @@ def handle_client(
                     continue
 
 
-                requested_mesh = parts[1]
-                password = parts[2]
+                requested_mesh, mesh_error = validate_text(
+                    parts[1],
+                    "Mesh name",
+                    MAX_MESH_NAME_LENGTH
+                )
+
+                password, password_error = validate_text(
+                    parts[2],
+                    "Password",
+                    MAX_PASSWORD_LENGTH
+                )
+
+
+                if mesh_error or password_error:
+
+                    send(
+                        client,
+                        f"ERROR|{mesh_error or password_error}"
+                    )
+
+                    continue
 
 
                 with mesh_lock:
 
-                    if requested_mesh not in meshes:
+                    existing_mesh_name = find_mesh_name(
+                        requested_mesh
+                    )
+
+
+                    if existing_mesh_name is None:
 
                         status = "NOT_FOUND"
 
                     elif (
                         password
-                        != meshes[requested_mesh]["password"]
+                        != meshes[existing_mesh_name]["password"]
                     ):
 
                         status = "WRONG_PASSWORD"
@@ -408,7 +553,7 @@ def handle_client(
                         status = "OK"
 
                         meshes[
-                            requested_mesh
+                            existing_mesh_name
                         ]["clients"][client] = username
 
 
@@ -432,7 +577,7 @@ def handle_client(
                     continue
 
 
-                mesh_name = requested_mesh
+                mesh_name = existing_mesh_name
 
 
                 print(
@@ -550,6 +695,16 @@ def handle_client(
                 message = data[4:]
 
 
+                if not message or len(message) > MAX_MESSAGE_LENGTH:
+
+                    send(
+                        client,
+                        "ERROR|Message must be between 1 and 2000 characters"
+                    )
+
+                    continue
+
+
                 print(
                     f"{username}: {message}"
                 )
@@ -577,6 +732,15 @@ def handle_client(
             username,
             mesh_name
         )
+
+
+        if username_reserved and username:
+
+            with mesh_lock:
+
+                active_usernames.discard(
+                    username.casefold()
+                )
 
 
 # =========================

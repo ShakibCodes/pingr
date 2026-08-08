@@ -45,7 +45,7 @@ from prompt_toolkit.key_binding import (
 
 username = input(
     "Enter your name: "
-)
+).strip()
 
 
 # ============================================================
@@ -72,6 +72,47 @@ client.sendall(
         username + "\n"
     ).encode("utf-8")
 )
+
+
+# The server confirms that the username is valid and not already in use before
+# the client shows the mesh menu.
+reader = client.makefile(
+    "r",
+    encoding="utf-8"
+)
+
+
+username_response = reader.readline().rstrip(
+    "\n"
+)
+
+
+username_status, _, username_message = username_response.partition(
+    "|"
+)
+
+
+if username_status == "ERROR":
+
+    print()
+    print(
+        "Error:",
+        username_message
+    )
+
+    client.close()
+
+    exit()
+
+
+if username_status != "USERNAME_OK":
+
+    print()
+    print("Error: Invalid server response")
+
+    client.close()
+
+    exit()
 
 
 # ============================================================
@@ -218,7 +259,7 @@ print()
 
 mesh_name = input(
     "Name of mesh: "
-)
+).strip()
 
 
 mesh_password = input(
@@ -257,12 +298,6 @@ client.sendall(
 # ============================================================
 # RECEIVE INITIAL RESPONSE
 # ============================================================
-
-reader = client.makefile(
-    "r",
-    encoding="utf-8"
-)
-
 
 response = reader.readline().rstrip(
     "\n"
