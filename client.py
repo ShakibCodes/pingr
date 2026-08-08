@@ -636,7 +636,22 @@ class ChatColorProcessor(Processor):
         transformation_input
     ):
 
-        line = transformation_input.document.current_line
+        document = transformation_input.document
+
+
+        if transformation_input.lineno >= len(document.lines):
+
+            return Transformation(
+                transformation_input.fragments
+            )
+
+
+        # A processor is called once for every displayed row.  `current_line`
+        # is the cursor line, which is usually the newest message; use this
+        # row's line number instead.
+        line = document.lines[
+            transformation_input.lineno
+        ]
 
 
         # Server notifications are yellow from start to finish.
