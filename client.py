@@ -16,6 +16,11 @@ from prompt_toolkit.layout.controls import (
     FormattedTextControl
 )
 
+from prompt_toolkit.layout.processors import (
+    Processor,
+    Transformation
+)
+
 from prompt_toolkit.formatted_text import (
     FormattedText
 )
@@ -587,6 +592,70 @@ def build_plain_chat():
 # CHAT AREA
 # ============================================================
 
+class ChatColorProcessor(Processor):
+
+    """Apply message colors while keeping the TextArea scrollable."""
+
+    def apply_transformation(
+        self,
+        transformation_input
+    ):
+
+        line = transformation_input.document.current_line
+
+
+        # Server notifications are yellow from start to finish.
+        if line.startswith("[Server] "):
+
+            return Transformation([
+                (
+                    "class:server-message",
+                    line
+                )
+            ])
+
+
+        # Chat messages color only the [username] portion. Each client sees
+        # their own name in green and every other name in cyan.
+        if line.startswith("[") and "] " in line:
+
+            name_end = line.find("]") + 1
+            sender = line[1:name_end - 1]
+
+            name_style = (
+                "class:self-name"
+                if sender == username
+                else "class:client-name"
+            )
+
+            return Transformation([
+                (
+                    name_style,
+                    line[:name_end]
+                ),
+                (
+                    "class:message",
+                    line[name_end:]
+                )
+            ])
+
+
+        # Member names belong to the server-generated response.
+        if line.startswith("    "):
+
+            return Transformation([
+                (
+                    "class:server-message",
+                    line
+                )
+            ])
+
+
+        return Transformation(
+            transformation_input.fragments
+        )
+
+
 chat_area = TextArea(
 
     text="",
@@ -597,6 +666,10 @@ chat_area = TextArea(
 
     # Keep the history visibly scrollable as it grows.
     scrollbar=True,
+
+    input_processors=[
+        ChatColorProcessor()
+    ],
 
     wrap_lines=True,
 
@@ -814,57 +887,13 @@ def header_right():
     ])
 
 
-header = VSplit([
-
-    Window(
-        content=FormattedTextControl(
-            header_left
-        )
-    ),
-
-    Window(
-        content=FormattedTextControl(
-            header_right
-        ),
-
-        align="RIGHT"
-
-    )
-
-])
-
-
-# ============================================================
-# NAVIGATION HELP
-# ============================================================
-
-def navigation_help():
-
-    return FormattedText([
-        ("class:help-key", "Enter"),
-        ("class:help-text", " send   "),
-        ("class:help-key", "PgUp/PgDn"),
-        ("class:help-text", " scroll   "),
-        ("class:help-key", "Home/End"),
-        ("class:help-text", " top/bottom   "),
-        ("class:help-key", "/members"),
-        ("class:help-text", " list members   "),
-        ("class:help-key", "/exit"),
-        ("class:help-text", " disconnect")
-    ])
-
-
-help_bar = Window(
+header = Window(
 
     content=FormattedTextControl(
-        navigation_help
+        header_left
     ),
 
-    height=1,
-
-    align="CENTER",
-
-    style="class:help-bar"
+    height=1
 
 )
 
@@ -877,15 +906,11 @@ input_field = TextArea(
 
     height=1,
 
-    prompt=[
-        ("class:input-prompt", "Send > ")
-    ],
+    prompt=">> ",
 
     multiline=False,
 
-    wrap_lines=False,
-
-    style="class:input"
+    wrap_lines=False
 
 )
 
@@ -1222,25 +1247,6 @@ style = Style.from_dict({
         "ansiyellow",
 
 
-    # ========================================================
-    # COMPOSER AND HELP
-    # ========================================================
-
-    "input":
-        "bg:#172033 fg:ansiwhite",
-
-    "input-prompt":
-        "bold ansicyan",
-
-    "help-bar":
-        "bg:#10151c",
-
-    "help-key":
-        "bold ansicyan",
-
-    "help-text":
-        "ansibrightblack"
-
 })
 
 
@@ -1261,11 +1267,7 @@ root_container = HSplit([
     # SMALL GAP
     # --------------------------------------------------------
 
-    Window(
-        char="-",
-        height=1,
-        style="class:separator"
-    ),
+    Window(height=1),
 
 
     # --------------------------------------------------------
@@ -1289,18 +1291,7 @@ root_container = HSplit([
     # INPUT
     # --------------------------------------------------------
 
-    Frame(
-        body=input_field,
-        title=" Compose ",
-        height=3
-    ),
-
-
-    # --------------------------------------------------------
-    # SHORTCUTS
-    # --------------------------------------------------------
-
-    help_bar
+    input_field
 
 ], style="class:root")
 
