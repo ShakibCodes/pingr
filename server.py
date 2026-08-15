@@ -1,41 +1,19 @@
-import socket
-import threading
-
+import asyncio
+import os
+import websockets
 
 # =========================
 # SERVER CONFIG
 # =========================
-
 HOST = "0.0.0.0"
-PORT = 5000
-
+PORT = int(os.environ.get("PORT", 5000))
 
 # =========================
-# MESHES
+# MESHES & STATE
 # =========================
-
 meshes = {}
-
-
-# Usernames are unique across all currently connected clients.  Store their
-# case-folded form so that "Shakib" and "shakib" cannot impersonate each other.
 active_usernames = set()
-
-# Structure:
-#
-# meshes = {
-#     "Brother": {
-#         "password": "1234",
-#         "clients": {
-#             socket1: "Shakib",
-#             socket2: "Tabish"
-#         }
-#     }
-# }
-
-
-mesh_lock = threading.Lock()
-
+state_lock = asyncio.Lock()
 
 MAX_USERNAME_LENGTH = 24
 MAX_MESH_NAME_LENGTH = 32
@@ -44,719 +22,275 @@ MAX_MESSAGE_LENGTH = 2_000
 
 
 def validate_text(value, label, maximum_length, allow_empty=False):
-
     """Return a safe protocol value or a short validation error."""
-
     value = value.strip()
 
-
     if not value and not allow_empty:
-
         return None, f"{label} cannot be empty"
 
-
     if len(value) > maximum_length:
-
         return None, f"{label} must be {maximum_length} characters or fewer"
 
-
     if "|" in value or any(ord(character) < 32 for character in value):
-
         return None, f"{label} contains unsupported characters"
-
 
     return value, None
 
 
 def find_mesh_name(requested_mesh):
-
     """Find a mesh case-insensitively while preserving its display name."""
-
     requested_key = requested_mesh.casefold()
 
-
     for existing_name in meshes:
-
         if existing_name.casefold() == requested_key:
-
             return existing_name
-
 
     return None
 
 
-# =========================
-# SOCKET
-# =========================
-
-server = socket.socket(
-    socket.AF_INET,
-    socket.SOCK_STREAM
-)
-
-server.setsockopt(
-    socket.SOL_SOCKET,
-    socket.SO_REUSEADDR,
-    1
-)
-
-server.bind(
-    (HOST, PORT)
-)
-
-server.listen()
-
-
-print("Server is running")
-print("Waiting for connections...")
-
-
-# =========================
-# SEND
-# =========================
-
-def send(client, message):
-
+async def send(websocket, message):
     try:
-
-        client.sendall(
-            (message + "\n").encode("utf-8")
-        )
-
-    except:
+        await websocket.send(message)
+    except Exception:
         pass
 
 
-# =========================
-# BROADCAST
-# =========================
-
-def broadcast(
-    mesh_name,
-    message,
-    exclude=None
-):
-
-    with mesh_lock:
-
+async def broadcast(mesh_name, message, exclude=None):
+    async with state_lock:
         if mesh_name not in meshes:
             return
+        clients = list(meshes[mesh_name]["clients"].keys())
 
-        clients = list(
-            meshes[mesh_name]["clients"].keys()
-        )
-
-    for client in clients:
-
-        if client == exclude:
+    for client_ws in clients:
+        if client_ws == exclude:
             continue
-
-        send(
-            client,
-            message
-        )
+        await send(client_ws, message)
 
 
-# =========================
-# SEND MEMBER COUNT
-# =========================
-
-def send_member_count(mesh_name):
-
-    with mesh_lock:
-
+async def send_member_count(mesh_name):
+    async with state_lock:
         if mesh_name not in meshes:
             return
+        count = len(meshes[mesh_name]["clients"])
 
-        count = len(
-            meshes[mesh_name]["clients"]
-        )
-
-    broadcast(
-        mesh_name,
-        f"COUNT|{count}"
-    )
+    await broadcast(mesh_name, f"COUNT|{count}")
 
 
-# =========================
-# REMOVE CLIENT
-# =========================
-
-def remove_client(
-    client,
-    username,
-    mesh_name
-):
-
+async def remove_client(websocket, username, mesh_name):
     if mesh_name is None:
-
-        try:
-            client.close()
-        except:
-            pass
-
         return
-
 
     left_mesh = False
     remaining_count = 0
     mesh_deleted = False
 
-
-    with mesh_lock:
-
+    async with state_lock:
         if mesh_name in meshes:
-
             mesh = meshes[mesh_name]
 
-
-            if client in mesh["clients"]:
-
-                del mesh["clients"][client]
-
+            if websocket in mesh["clients"]:
+                del mesh["clients"][websocket]
                 left_mesh = True
 
-
-            remaining_count = len(
-                mesh["clients"]
-            )
-
-
-            # =========================
-            # DELETE EMPTY MESH
-            # =========================
+            remaining_count = len(mesh["clients"])
 
             if remaining_count == 0:
-
                 del meshes[mesh_name]
-
                 mesh_deleted = True
 
-
-    # =========================
-    # NOTIFY EVERYONE
-    # =========================
-
     if left_mesh and not mesh_deleted:
-
-        broadcast(
-            mesh_name,
-            f"SERVER|{username} left the mesh"
-        )
-
-        send_member_count(
-            mesh_name
-        )
-
-        print(
-            f"{username} left mesh: {mesh_name}"
-        )
-
+        await broadcast(mesh_name, f"SERVER|{username} left the mesh")
+        await send_member_count(mesh_name)
+        print(f"{username} left mesh: {mesh_name}")
 
     elif left_mesh and mesh_deleted:
-
-        print(
-            f"{username} left mesh: {mesh_name}"
-        )
-
-        print(
-            f"Mesh deleted: {mesh_name}"
-        )
+        print(f"{username} left mesh: {mesh_name}")
+        print(f"Mesh deleted: {mesh_name}")
 
 
-    try:
-        client.close()
-    except:
-        pass
-
-
-# =========================
-# HANDLE CLIENT
-# =========================
-
-def handle_client(
-    client,
-    address
-):
-
-    print(
-        "Client connected:",
-        address
-    )
-
+async def handle_client(websocket):
+    print(f"Client connected from {websocket.remote_address}")
 
     username = None
     mesh_name = None
     username_reserved = False
 
-
     try:
-
         # =========================
-        # LINE READER
+        # RECEIVE USERNAME
         # =========================
-
-        reader = client.makefile(
-            "r",
-            encoding="utf-8"
-        )
-
-
-        # =========================
-        # USERNAME
-        # =========================
-
-        line = reader.readline()
-
-        if not line:
-            return
-
+        raw_username = await websocket.recv()
+        username_str = raw_username.rstrip("\n")
 
         username, error = validate_text(
-            line.rstrip("\n"),
-            "Username",
-            MAX_USERNAME_LENGTH
+            username_str, "Username", MAX_USERNAME_LENGTH
         )
-
 
         if error:
-
-            send(
-                client,
-                f"ERROR|{error}"
-            )
-
+            await send(websocket, f"ERROR|{error}")
             return
 
-
-        with mesh_lock:
-
+        async with state_lock:
             username_key = username.casefold()
 
-
             if username_key in active_usernames:
-
                 username_taken = True
-
             else:
-
                 username_taken = False
-                active_usernames.add(
-                    username_key
-                )
+                active_usernames.add(username_key)
                 username_reserved = True
 
-
         if username_taken:
-
-            send(
-                client,
-                "ERROR|Username is already in use"
-            )
-
+            await send(websocket, "ERROR|Username is already in use")
             return
 
-
-        send(
-            client,
-            "USERNAME_OK"
-        )
-
-
-        print(
-            "Username:",
-            username
-        )
-
+        await send(websocket, "USERNAME_OK")
+        print("Username accepted:", username)
 
         # =========================
         # MESH SETUP
         # =========================
-
         while True:
-
-            line = reader.readline()
-
-            if not line:
-                return
-
-
-            data = line.rstrip("\n")
-
-
-            parts = data.split(
-                "|",
-                2
-            )
-
-
+            raw_req = await websocket.recv()
+            data = raw_req.rstrip("\n")
+            parts = data.split("|", 2)
             command = parts[0]
 
-
-            # =========================
-            # START MESH
-            # =========================
-
             if command == "START":
-
                 if len(parts) < 3:
-
-                    send(
-                        client,
-                        "ERROR|Invalid start request"
-                    )
-
+                    await send(websocket, "ERROR|Invalid start request")
                     continue
-
 
                 requested_mesh, mesh_error = validate_text(
-                    parts[1],
-                    "Mesh name",
-                    MAX_MESH_NAME_LENGTH
+                    parts[1], "Mesh name", MAX_MESH_NAME_LENGTH
                 )
-
                 password, password_error = validate_text(
-                    parts[2],
-                    "Password",
-                    MAX_PASSWORD_LENGTH
+                    parts[2], "Password", MAX_PASSWORD_LENGTH
                 )
-
 
                 if mesh_error or password_error:
-
-                    send(
-                        client,
-                        f"ERROR|{mesh_error or password_error}"
-                    )
-
+                    await send(websocket, f"ERROR|{mesh_error or password_error}")
                     continue
 
-
-                with mesh_lock:
-
+                async with state_lock:
                     if find_mesh_name(requested_mesh):
-
                         exists = True
-
                     else:
-
                         exists = False
-
                         meshes[requested_mesh] = {
-
                             "password": password,
-
-                            "clients": {
-                                client: username
-                            }
-
+                            "clients": {websocket: username},
                         }
 
-
                 if exists:
-
-                    send(
-                        client,
-                        "ERROR|Mesh already exists"
-                    )
-
+                    await send(websocket, "ERROR|Mesh already exists")
                     continue
-
 
                 mesh_name = requested_mesh
+                print(f"{username} created mesh: {mesh_name}")
 
-
-                print(
-                    f"{username} created mesh: {mesh_name}"
-                )
-
-
-                send(
-                    client,
-                    "SUCCESS|Mesh created"
-                )
-
-
-                send(
-                    client,
-                    f"SERVER|Mesh '{mesh_name}' created"
-                )
-
-
-                send_member_count(
-                    mesh_name
-                )
-
-
+                await send(websocket, "SUCCESS|Mesh created")
+                await send(websocket, f"SERVER|Mesh '{mesh_name}' created")
+                await send_member_count(mesh_name)
                 break
-
-
-            # =========================
-            # JOIN MESH
-            # =========================
 
             elif command == "JOIN":
-
                 if len(parts) < 3:
-
-                    send(
-                        client,
-                        "ERROR|Invalid join request"
-                    )
-
+                    await send(websocket, "ERROR|Invalid join request")
                     continue
-
 
                 requested_mesh, mesh_error = validate_text(
-                    parts[1],
-                    "Mesh name",
-                    MAX_MESH_NAME_LENGTH
+                    parts[1], "Mesh name", MAX_MESH_NAME_LENGTH
                 )
-
                 password, password_error = validate_text(
-                    parts[2],
-                    "Password",
-                    MAX_PASSWORD_LENGTH
+                    parts[2], "Password", MAX_PASSWORD_LENGTH
                 )
-
 
                 if mesh_error or password_error:
-
-                    send(
-                        client,
-                        f"ERROR|{mesh_error or password_error}"
-                    )
-
+                    await send(websocket, f"ERROR|{mesh_error or password_error}")
                     continue
 
-
-                with mesh_lock:
-
-                    existing_mesh_name = find_mesh_name(
-                        requested_mesh
-                    )
-
+                async with state_lock:
+                    existing_mesh_name = find_mesh_name(requested_mesh)
 
                     if existing_mesh_name is None:
-
                         status = "NOT_FOUND"
-
-                    elif (
-                        password
-                        != meshes[existing_mesh_name]["password"]
-                    ):
-
+                    elif password != meshes[existing_mesh_name]["password"]:
                         status = "WRONG_PASSWORD"
-
                     else:
-
                         status = "OK"
-
-                        meshes[
-                            existing_mesh_name
-                        ]["clients"][client] = username
-
+                        meshes[existing_mesh_name]["clients"][websocket] = username
 
                 if status == "NOT_FOUND":
-
-                    send(
-                        client,
-                        "ERROR|Mesh does not exist"
-                    )
-
+                    await send(websocket, "ERROR|Mesh does not exist")
                     continue
-
 
                 if status == "WRONG_PASSWORD":
-
-                    send(
-                        client,
-                        "ERROR|Wrong password"
-                    )
-
+                    await send(websocket, "ERROR|Wrong password")
                     continue
-
 
                 mesh_name = existing_mesh_name
+                print(f"{username} joined mesh: {mesh_name}")
 
-
-                print(
-                    f"{username} joined mesh: {mesh_name}"
-                )
-
-
-                send(
-                    client,
-                    "SUCCESS|Joined mesh"
-                )
-
-
-                # =========================
-                # TELL EVERYONE
-                # =========================
-
-                broadcast(
-                    mesh_name,
-                    f"SERVER|{username} joined the mesh"
-                )
-
-
-                # =========================
-                # UPDATE COUNT
-                # =========================
-
-                send_member_count(
-                    mesh_name
-                )
-
-
+                await send(websocket, "SUCCESS|Joined mesh")
+                await broadcast(mesh_name, f"SERVER|{username} joined the mesh")
+                await send_member_count(mesh_name)
                 break
-
 
             else:
-
-                send(
-                    client,
-                    "ERROR|Unknown command"
-                )
-
+                await send(websocket, "ERROR|Unknown command")
 
         # =========================
-        # CHAT
+        # CHAT LOOP
         # =========================
-
-        while True:
-
-            line = reader.readline()
-
-            if not line:
-                break
-
-
-            data = line.rstrip("\n")
-
-
-            # =========================
-            # COMMAND
-            # =========================
+        async for raw_msg in websocket:
+            data = raw_msg.rstrip("\n")
 
             if data.startswith("CMD|"):
-
                 command = data[4:]
 
-
-                # =========================
-                # /members
-                # =========================
-
                 if command == "members":
-
-                    with mesh_lock:
-
+                    async with state_lock:
                         if mesh_name not in meshes:
                             continue
+                        members = list(meshes[mesh_name]["clients"].values())
 
-
-                        members = list(
-                            meshes[
-                                mesh_name
-                            ]["clients"].values()
-                        )
-
-
-                    # Send ONLY to this client
-
-                    member_data = "|".join(
-                        members
-                    )
-
-
-                    send(
-                        client,
-                        f"MEMBERS|{len(members)}|{member_data}"
-                    )
-
-
-                # =========================
-                # /exit
-                # =========================
+                    member_data = "|".join(members)
+                    await send(websocket, f"MEMBERS|{len(members)}|{member_data}")
 
                 elif command == "exit":
-
                     break
 
-
-            # =========================
-            # NORMAL MESSAGE
-            # =========================
-
             elif data.startswith("MSG|"):
-
                 message = data[4:]
 
-
                 if not message or len(message) > MAX_MESSAGE_LENGTH:
-
-                    send(
-                        client,
-                        "ERROR|Message must be between 1 and 2000 characters"
+                    await send(
+                        websocket,
+                        "ERROR|Message must be between 1 and 2000 characters",
                     )
-
                     continue
 
+                print(f"{username}: {message}")
+                await broadcast(mesh_name, f"CHAT|{username}|{message}")
 
-                print(
-                    f"{username}: {message}"
-                )
-
-
-                broadcast(
-                    mesh_name,
-                    f"CHAT|{username}|{message}"
-                )
-
-
+    except websockets.ConnectionClosed:
+        pass
     except Exception as e:
-
-        print(
-            "Connection error:",
-            username,
-            e
-        )
-
-
+        print(f"Connection error for {username}: {e}")
     finally:
-
-        remove_client(
-            client,
-            username,
-            mesh_name
-        )
-
+        await remove_client(websocket, username, mesh_name)
 
         if username_reserved and username:
-
-            with mesh_lock:
-
-                active_usernames.discard(
-                    username.casefold()
-                )
+            async with state_lock:
+                active_usernames.discard(username.casefold())
 
 
-# =========================
-# ACCEPT CONNECTIONS
-# =========================
-
-while True:
-
-    client, address = server.accept()
+async def main():
+    print(f"Server listening on {HOST}:{PORT}...")
+    async with websockets.serve(handle_client, HOST, PORT):
+        await asyncio.Future()  # Keep running standard async event loop
 
 
-    thread = threading.Thread(
-        target=handle_client,
-        args=(client, address),
-        daemon=True
-    )
-
-
-    thread.start()
+if __name__ == "__main__":
+    asyncio.run(main())
