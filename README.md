@@ -54,8 +54,8 @@ You'll be prompted for:
 Once connected, you're in the chat:
 
 ```
-[ MSG ]  •  yourname  •  mesh-name          3 members  •  ● Connected
-──────────────────────────────────────────────────────────────────
+[ MSG ]  •  yourname  •  mesh-name       
+──────────────────────────────────────────────
 [Server] yourname joined the mesh
 [alex] hey, anyone around?
 [you] yeah, what's up
@@ -141,8 +141,10 @@ Issues and pull requests are welcome. If you spot a bug or have an idea for a fe
 
 ## 📜 License
 
-MIT — do whatever you want with it, just don't blame me if your mesh gets raided.
+MIT — do whatever you want with it, just don't blame me if your mesh gets raided :)
 
 ---
-
-*"Hello, friend."* — built for anyone who thinks the terminal is still the best chat client.
+**In your terminal** <br>
+`pip install pingr`<br>
+`msg`<br>
+and have Fun with your Friends!
