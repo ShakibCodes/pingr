@@ -1,0 +1,17 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "tmsg"
+version = "0.1.0"
+description = "A terminal-based mesh messaging application."
+readme = "README.md"
+requires-python = ">=3.8"
+dependencies = [
+    "prompt_toolkit>=3.0.0",
+    "websockets>=11.0"
+]
+
+[project.scripts]
+msg = "tmsg.main:main"
