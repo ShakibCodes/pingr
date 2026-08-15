@@ -1,0 +1,10 @@
+README.md
+pyproject.toml
+tmsg/__init__.py
+tmsg/main.py
+tmsg.egg-info/PKG-INFO
+tmsg.egg-info/SOURCES.txt
+tmsg.egg-info/dependency_links.txt
+tmsg.egg-info/entry_points.txt
+tmsg.egg-info/requires.txt
+tmsg.egg-info/top_level.txt

@@ -11,7 +11,7 @@ from prompt_toolkit.layout.processors import Processor, Transformation
 from prompt_toolkit.styles import Style
 from prompt_toolkit.widgets import Frame, TextArea
 
-SERVER_URL = "ws://127.0.0.1:5000"
+SERVER_URL = "wss://tmsg.onrender.com"
 
 
 def main():

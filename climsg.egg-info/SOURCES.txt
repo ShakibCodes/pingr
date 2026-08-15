@@ -1,0 +1,10 @@
+README.md
+pyproject.toml
+climsg.egg-info/PKG-INFO
+climsg.egg-info/SOURCES.txt
+climsg.egg-info/dependency_links.txt
+climsg.egg-info/entry_points.txt
+climsg.egg-info/requires.txt
+climsg.egg-info/top_level.txt
+tmsg/__init__.py
+tmsg/main.py
