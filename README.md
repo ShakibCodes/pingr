@@ -65,12 +65,37 @@ Once connected, you're in the chat:
 
 ### In-chat commands
 
-| Command    | Description                              |
-|------------|-------------------------------------------|
-| `/members` | List everyone currently in the mesh        |
-| `/exit`    | Leave the mesh and close the connection    |
+| Command    | Description                                            |
+|------------|--------------------------------------------------------|
+| `/help`    | Show available commands, shortcuts, and syntax guide   |
+| `/copy`    | Copy the latest message to your clipboard              |
+| `/copyall` | Copy the entire chat transcript to your clipboard      |
+| `/clear`   | Clear local chat view                                  |
+| `/members` | List everyone currently in the mesh                    |
+| `/exit`    | Leave the mesh and close the connection                |
 
-Scrolling: `Page Up` / `Page Down` to scroll the chat, `Home` / `End` to jump to the top or bottom.
+### Keyboard Shortcuts & Modes
+
+- **Switch Modes (`Tab` / `Shift+Tab`)**:
+  - **`[ ⌨ INPUT MODE ]`**: Type messages and run slash commands.
+  - **`[ 📋 CHAT BROWSE & COPY MODE ]`**: Navigate chat history and copy text.
+- **In Browse Mode**:
+  - `c` or `Ctrl+C`: Copy selected text (or full message under cursor) to clipboard
+  - `l`: Copy the latest message to clipboard
+  - `a`: Copy the entire chat transcript to clipboard
+  - `Shift + Arrows` or mouse click-drag: Select text to copy
+  - `Enter` / `i` / `Esc`: Jump back to typing mode
+- **Scrolling**: `Page Up` / `Page Down` to scroll, `Home` / `End` to jump to top or bottom.
+
+### Rich Text Formatting
+
+Pingr supports inline Markdown-style syntax:
+- `**bold text**`
+- `*italic text*`
+- `` `inline code` ``
+- `> blockquote`
+- `@username` mentions
+- `https://...` link styling
 
 ---
 
