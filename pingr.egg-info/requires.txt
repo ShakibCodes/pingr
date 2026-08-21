@@ -1,2 +1,0 @@
-prompt_toolkit>=3.0.0
-websockets>=11.0
