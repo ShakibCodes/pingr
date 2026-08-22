@@ -8,10 +8,10 @@ from websockets.sync.client import connect
 
 from prompt_toolkit.application import Application
 from prompt_toolkit.document import Document
-from prompt_toolkit.filters import has_focus
+from prompt_toolkit.filters import Condition, has_focus
 from prompt_toolkit.formatted_text import FormattedText
 from prompt_toolkit.key_binding import KeyBindings
-from prompt_toolkit.layout import Dimension, HSplit, Layout, Window
+from prompt_toolkit.layout import ConditionalContainer, Dimension, HSplit, Layout, Window
 from prompt_toolkit.layout.controls import FormattedTextControl
 from prompt_toolkit.lexers import Lexer
 from prompt_toolkit.styles import Style
@@ -22,6 +22,17 @@ if hasattr(sys.stdout, "reconfigure"):
 
 DEFAULT_SERVER_URL = "wss://tmsg.onrender.com"
 PALETTE_COUNT = 8
+
+BANNER_ART = """  ┌──────────────────────────────────────────────────────────────┐
+  │                                                              │
+  │   ██████╗ ██╗███╗   ██╗ ██████╗ ██████╗                      │
+  │   ██╔══██╗██║████╗  ██║██╔════╝ ██╔══██╗                     │
+  │   ██████╔╝██║██╔██╗ ██║██║  ███╗██████╔╝                     │
+  │   ██╔═══╝ ██║██║╚██╗██║██║   ██║██╔══██╗                     │
+  │   ██║     ██║██║ ╚████║╚██████╔╝██║  ██║                     │
+  │   ╚═╝     ╚═╝╚═╝  ╚═══╝ ╚═════╝ ╚═╝  ╚═╝                     │
+  │                                                              │
+  └──────────────────────────────────────────────────────────────┘"""
 
 
 def get_server_url() -> str:
@@ -120,9 +131,7 @@ def clean_copied_text(text: str) -> str:
     lines = text.split("\n")
     cleaned_lines = []
     for line in lines:
-        # Strip code border prefixes
         line = re.sub(r"^\s*[│║]\s?", "", line)
-        # Strip leading username tags: e.g. "[Shakib (You)] ", "[tabish] "
         line = re.sub(r"^\[[^\]]+\]:\s*", "", line)
         line = re.sub(r"^\[[^\]]+\]\s+", "", line)
         line = re.sub(r"^[✦➜←👥ℹ⚠]\s*\[[^\]]+\]\s*", "", line)
@@ -287,99 +296,16 @@ class Message:
 
 def main():
     server_url = get_server_url()
-    username = input("Enter your name: ").strip()
 
-    try:
-        client = connect(server_url)
-    except Exception as e:
-        print(f"Could not connect to server at {server_url}: {e}")
-        sys.exit(1)
-
-    client.send(username + "\n")
-
-    username_response = client.recv().rstrip("\n")
-    username_status, _, username_message = username_response.partition("|")
-
-    if username_status == "ERROR":
-        print("\nError:", username_message)
-        client.close()
-        sys.exit()
-
-    if username_status != "USERNAME_OK":
-        print("\nError: Invalid server response")
-        client.close()
-        sys.exit()
-
+    # Application state
+    current_step = 1  # 1: name, 2: choose_mesh, 3: mesh_credentials, 4: chat
+    username = ""
     menu_choice = 0
     menu_options = ["Start Mesh", "Join Mesh"]
-
-    def menu_text():
-        result = []
-        for i, option in enumerate(menu_options):
-            prefix = "> " if i == menu_choice else "  "
-            result.append(
-                (
-                    "class:selected" if i == menu_choice else "",
-                    prefix + option,
-                )
-            )
-            if i != len(menu_options) - 1:
-                result.append(("", "\n"))
-        return FormattedText(result)
-
-    menu_control = FormattedTextControl(menu_text)
-    menu_window = Window(content=menu_control)
-    menu_kb = KeyBindings()
-
-    @menu_kb.add("up")
-    def _(event):
-        nonlocal menu_choice
-        menu_choice = (menu_choice - 1) % len(menu_options)
-        event.app.invalidate()
-
-    @menu_kb.add("down")
-    def _(event):
-        nonlocal menu_choice
-        menu_choice = (menu_choice + 1) % len(menu_options)
-        event.app.invalidate()
-
-    @menu_kb.add("enter")
-    def _(event):
-        event.app.exit()
-
-    menu_layout = Layout(HSplit([Window(height=2), menu_window]))
-    menu_style = Style.from_dict({"selected": "bold ansicyan"})
-
-    menu_app = Application(
-        layout=menu_layout,
-        key_bindings=menu_kb,
-        style=menu_style,
-        full_screen=True,
-    )
-    menu_app.run()
-
-    selected_option = menu_options[menu_choice]
-
-    print()
-    mesh_name = input("Name of mesh: ").strip()
-    mesh_password = input("Password: ")
-
-    if selected_option == "Start Mesh":
-        request = f"START|{mesh_name}|{mesh_password}"
-    else:
-        request = f"JOIN|{mesh_name}|{mesh_password}"
-
-    client.send(request + "\n")
-
-    response = client.recv().rstrip("\n")
-    parts = response.split("|", 1)
-    status = parts[0]
-    message = parts[1] if len(parts) > 1 else ""
-
-    if status == "ERROR":
-        print("\nError:", message)
-        client.close()
-        sys.exit()
+    mesh_name = ""
+    mesh_password = ""
+    status_error = ""
+    client = None
 
     messages = []
     line_to_message_map = {}
@@ -387,6 +313,18 @@ def main():
     follow_bottom = True
     toast_text = ""
     toast_timer = None
+
+    # Step conditions for layout
+    is_step_1 = Condition(lambda: current_step == 1)
+    is_step_2 = Condition(lambda: current_step == 2)
+    is_step_3 = Condition(lambda: current_step == 3)
+    is_onboarding = Condition(lambda: current_step < 4)
+    is_chat = Condition(lambda: current_step >= 4)
+
+    # Onboarding Inputs
+    name_input = TextArea(height=1, prompt="  >> ", multiline=False, wrap_lines=False)
+    mesh_name_input = TextArea(height=1, prompt="  Name of mesh : ", multiline=False, wrap_lines=False)
+    mesh_pass_input = TextArea(height=1, prompt="  Password     : ", password=True, multiline=False, wrap_lines=False)
 
     def show_toast(text: str, duration: float = 3.0):
         nonlocal toast_text, toast_timer
@@ -411,6 +349,71 @@ def main():
         toast_timer.daemon = True
         toast_timer.start()
 
+    def banner_content():
+        return FormattedText([("class:banner", BANNER_ART)])
+
+    def wizard_info_content():
+        frags = []
+        if current_step == 1:
+            frags.append(("class:step-title", "  Write your name:\n"))
+            if status_error:
+                frags.append(("class:error", f"  ⚠ {status_error}\n"))
+        elif current_step == 2:
+            frags.append(("class:step-done", f"  ✔ Name: {username}\n\n"))
+            frags.append(("class:step-title", "  Choose one:\n\n"))
+        elif current_step == 3:
+            frags.append(("class:step-done", f"  ✔ Name  : {username}\n"))
+            frags.append(("class:step-done", f"  ✔ Action: {menu_options[menu_choice]}\n\n"))
+            frags.append(("class:step-title", f"  Enter {menu_options[menu_choice]} Credentials:\n"))
+            if status_error:
+                frags.append(("class:error", f"  ⚠ {status_error}\n"))
+        return FormattedText(frags)
+
+    def menu_buttons_content():
+        frags = []
+        for i, opt in enumerate(menu_options):
+            if i == menu_choice:
+                frags.append(("class:menu-selected", f"   ►  {opt}   "))
+            else:
+                frags.append(("class:menu-unselected", f"      {opt}   "))
+            frags.append(("", "\n"))
+        if status_error:
+            frags.append(("", "\n"))
+            frags.append(("class:error", f"  ⚠ {status_error}\n"))
+        return FormattedText(frags)
+
+    menu_control = FormattedTextControl(menu_buttons_content, focusable=True)
+    menu_window = Window(content=menu_control, height=Dimension(min=2, max=4))
+
+    def onboarding_footer():
+        if current_step == 1:
+            return FormattedText([("class:footer.desc", "  [Enter] Confirm Name  [Ctrl+C] Exit")])
+        elif current_step == 2:
+            return FormattedText([("class:footer.desc", "  [↑/↓] Select Option  [Enter] Confirm  [Ctrl+C] Exit")])
+        elif current_step == 3:
+            return FormattedText([("class:footer.desc", "  [Enter] Next / Connect  [Tab] Switch Field  [Ctrl+C] Exit")])
+        return FormattedText([])
+
+    onboarding_container = HSplit([
+        Window(height=1),
+        Window(content=FormattedTextControl(banner_content), height=10),
+        Window(height=1),
+        Window(content=FormattedTextControl(wizard_info_content), height=Dimension(min=2, max=6)),
+        ConditionalContainer(name_input, is_step_1),
+        ConditionalContainer(menu_window, is_step_2),
+        ConditionalContainer(
+            HSplit([
+                mesh_name_input,
+                Window(height=1),
+                mesh_pass_input,
+            ]),
+            is_step_3,
+        ),
+        Window(height=Dimension(weight=1)),
+        Window(content=FormattedTextControl(onboarding_footer), height=1),
+    ])
+
+    # Chat UI Components
     def add_server_message(text):
         clean_text = clean_incoming_text(text)
         if clean_text.endswith(" joined the mesh"):
@@ -492,15 +495,16 @@ def main():
             for lno in range(start_lineno, end_lineno):
                 line_to_message_map[lno] = msg
 
-            lines.append("")  # Blank separator line
+            lines.append("")
 
         return "\n".join(lines)
 
+    chat_lexer = ChatLexer(username)
     chat_area = TextArea(
         text="",
         height=Dimension(weight=1),
         scrollbar=True,
-        lexer=ChatLexer(username),
+        lexer=chat_lexer,
         wrap_lines=True,
         read_only=True,
         focusable=True,
@@ -573,6 +577,20 @@ def main():
     footer = Window(content=FormattedTextControl(footer_content), height=1)
     input_field = TextArea(height=1, prompt=">> ", multiline=False, wrap_lines=False)
 
+    chat_container = HSplit([
+        header,
+        Window(height=1),
+        Frame(body=chat_area, title=" Messages "),
+        Window(height=1),
+        input_field,
+        footer,
+    ])
+
+    root_container = HSplit([
+        ConditionalContainer(onboarding_container, is_onboarding),
+        ConditionalContainer(chat_container, is_chat),
+    ], style="class:root")
+
     def copy_latest_message_action():
         client_msgs = [m for m in messages if m.kind == "client"]
         if client_msgs:
@@ -617,7 +635,6 @@ def main():
                     show_toast(f"✓ Copied selection ({len(clean_text)} chars)!")
                     return
 
-        # If no selection, copy message at cursor
         cursor_row = buf.document.cursor_position_row
         target_msg = line_to_message_map.get(cursor_row)
         if target_msg and target_msg.text:
@@ -627,7 +644,6 @@ def main():
                 show_toast(f"✓ Copied clean message from {sender_label} ({len(text_to_copy)} chars)!")
                 return
 
-        # Fallback to current line cleaned
         current_line = buf.document.current_line
         if current_line.strip():
             clean_line = clean_copied_text(current_line)
@@ -742,144 +758,6 @@ def main():
         except Exception:
             pass
 
-    kb = KeyBindings()
-
-    @kb.add("tab")
-    def _(event):
-        if event.app.layout.has_focus(input_field):
-            event.app.layout.focus(chat_area)
-            show_toast("📋 Browse Mode: [c] Copy Clean Message | [l] Copy Last | [Enter] Type", duration=4.0)
-        else:
-            event.app.layout.focus(input_field)
-
-    @kb.add("s-tab")
-    def _(event):
-        if event.app.layout.has_focus(input_field):
-            event.app.layout.focus(chat_area)
-        else:
-            event.app.layout.focus(input_field)
-
-    # Input Field Keybindings
-    @kb.add("enter", filter=has_focus(input_field))
-    def _(event):
-        send_message()
-
-    @kb.add("pageup", filter=has_focus(input_field))
-    def _(event):
-        scroll_up()
-
-    @kb.add("pagedown", filter=has_focus(input_field))
-    def _(event):
-        scroll_down()
-
-    @kb.add("home", filter=has_focus(input_field))
-    def _(event):
-        scroll_top()
-
-    @kb.add("end", filter=has_focus(input_field))
-    def _(event):
-        scroll_bottom()
-
-    # Chat Area Keybindings
-    @kb.add("escape", filter=has_focus(chat_area))
-    @kb.add("enter", filter=has_focus(chat_area))
-    @kb.add("i", filter=has_focus(chat_area))
-    def _(event):
-        event.app.layout.focus(input_field)
-
-    @kb.add("c", filter=has_focus(chat_area))
-    @kb.add("c-c", filter=has_focus(chat_area))
-    @kb.add("y", filter=has_focus(chat_area))
-    def _(event):
-        copy_chat_selection_or_current()
-
-    @kb.add("l", filter=has_focus(chat_area))
-    def _(event):
-        copy_latest_message_action()
-
-    @kb.add("a", filter=has_focus(chat_area))
-    def _(event):
-        copy_all_messages_action()
-
-    style = Style.from_dict(
-        {
-            "title": "bold ansiwhite",
-            "self-name": "bold ansigreen",
-            "mesh": "bold ansicyan",
-            "separator": "ansibrightblack",
-            "count": "ansicyan",
-            "connected": "bold ansigreen",
-            "mode.input": "bg:#1e3a8a fg:#93c5fd bold",
-            "mode.browse": "bg:#065f46 fg:#6ee7b7 bold",
-            "root": "bg:#0b0f14",
-            "frame.border": "ansibrightblack",
-            "frame.label": "bold ansicyan",
-            "chat": "bg:#0e131b",
-            "server-icon": "bold ansiyellow",
-            "server-tag": "bold ansiyellow",
-            "server-join-icon": "bold ansigreen",
-            "server-join": "bold ansigreen",
-            "server-leave-icon": "bold ansired",
-            "server-leave": "bold ansired",
-            "server-message": "ansiyellow",
-            "help-icon": "bold ansicyan",
-            "help-tag": "bold ansicyan",
-            "help-message": "ansicyan",
-            "error-icon": "bold ansired",
-            "error-tag": "bold ansired",
-            "error-message": "bold ansired",
-            "user-color-0": "bold ansicyan",
-            "user-color-1": "bold ansimagenta",
-            "user-color-2": "bold ansiyellow",
-            "user-color-3": "bold ansibrightblue",
-            "user-color-4": "bold ansibrightmagenta",
-            "user-color-5": "bold ansibrightcyan",
-            "user-color-6": "bold ansibrightyellow",
-            "user-color-7": "bold ansibrightgreen",
-            "message": "ansiwhite",
-            "markdown-bold": "bold ansiwhite",
-            "markdown-italic": "italic ansiwhite",
-            "inline-code": "bold bg:#1e293b fg:#38bdf8",
-            "code-fence": "ansibrightblack",
-            "code-border": "bold ansicyan",
-            "code-block": "ansiwhite",
-            "quote-bar": "bold ansicyan",
-            "blockquote": "italic ansibrightblack",
-            "url": "underline ansicyan",
-            "mention": "bold bg:#3730a3 fg:#c7d2fe",
-            "self-mention": "bold bg:#065f46 fg:#86efac",
-            "member-bullet": "bold ansiyellow",
-            "toast": "bold bg:#065f46 fg:#ffffff",
-            "footer.key": "bold ansicyan",
-            "footer.desc": "ansibrightblack",
-            "scrollbar.background": "bg:#0e131b",
-            "scrollbar.button": "bg:#3b82f6",
-            "scrollbar.arrow": "fg:#93c5fd",
-        }
-    )
-
-    root_container = HSplit(
-        [
-            header,
-            Window(height=1),
-            Frame(body=chat_area, title=" Messages "),
-            Window(height=1),
-            input_field,
-            footer,
-        ],
-        style="class:root",
-    )
-
-    layout = Layout(root_container, focused_element=input_field)
-
-    app = Application(
-        layout=layout,
-        key_bindings=kb,
-        style=style,
-        full_screen=True,
-        mouse_support=True,
-    )
-
     def receive_messages():
         nonlocal member_count
 
@@ -931,7 +809,273 @@ def main():
             except Exception:
                 break
 
-    threading.Thread(target=receive_messages, daemon=True).start()
+    kb = KeyBindings()
+
+    # Step 1: Submit username
+    @kb.add("enter", filter=is_step_1 & has_focus(name_input))
+    def _(event):
+        nonlocal username, current_step, status_error, client
+        val = name_input.text.strip()
+        if not val:
+            status_error = "Username cannot be empty"
+            event.app.invalidate()
+            return
+
+        try:
+            if client is None:
+                client = connect(server_url)
+        except Exception as e:
+            status_error = f"Could not connect to server at {server_url}: {e}"
+            event.app.invalidate()
+            return
+
+        try:
+            client.send(val + "\n")
+            username_response = client.recv().rstrip("\n")
+            username_status, _, username_message = username_response.partition("|")
+
+            if username_status == "ERROR":
+                status_error = username_message or "Username rejected"
+                name_input.text = ""
+                event.app.invalidate()
+                return
+
+            if username_status != "USERNAME_OK":
+                status_error = "Invalid server response"
+                event.app.invalidate()
+                return
+
+            username = val
+            chat_lexer.current_user = username
+            status_error = ""
+            current_step = 2
+            event.app.layout.focus(menu_window)
+            event.app.invalidate()
+
+        except Exception as e:
+            status_error = f"Connection error: {e}"
+            event.app.invalidate()
+
+    # Step 2: Choose menu option (Start Mesh / Join Mesh)
+    @kb.add("up", filter=is_step_2)
+    @kb.add("left", filter=is_step_2)
+    def _(event):
+        nonlocal menu_choice
+        menu_choice = (menu_choice - 1) % len(menu_options)
+        event.app.invalidate()
+
+    @kb.add("down", filter=is_step_2)
+    @kb.add("right", filter=is_step_2)
+    def _(event):
+        nonlocal menu_choice
+        menu_choice = (menu_choice + 1) % len(menu_options)
+        event.app.invalidate()
+
+    @kb.add("enter", filter=is_step_2)
+    def _(event):
+        nonlocal current_step, status_error
+        status_error = ""
+        current_step = 3
+        event.app.layout.focus(mesh_name_input)
+        event.app.invalidate()
+
+    # Step 3: Mesh Credentials
+    @kb.add("enter", filter=is_step_3 & has_focus(mesh_name_input))
+    def _(event):
+        if mesh_name_input.text.strip():
+            event.app.layout.focus(mesh_pass_input)
+        else:
+            nonlocal status_error
+            status_error = "Mesh name cannot be empty"
+            event.app.invalidate()
+
+    @kb.add("tab", filter=is_step_3)
+    def _(event):
+        if event.app.layout.has_focus(mesh_name_input):
+            event.app.layout.focus(mesh_pass_input)
+        else:
+            event.app.layout.focus(mesh_name_input)
+
+    @kb.add("enter", filter=is_step_3 & has_focus(mesh_pass_input))
+    def _(event):
+        nonlocal mesh_name, mesh_password, current_step, status_error
+        name_val = mesh_name_input.text.strip()
+        pass_val = mesh_pass_input.text
+
+        if not name_val:
+            status_error = "Mesh name cannot be empty"
+            event.app.layout.focus(mesh_name_input)
+            event.app.invalidate()
+            return
+
+        if not pass_val:
+            status_error = "Password cannot be empty"
+            event.app.invalidate()
+            return
+
+        selected_option = menu_options[menu_choice]
+        if selected_option == "Start Mesh":
+            request = f"START|{name_val}|{pass_val}"
+        else:
+            request = f"JOIN|{name_val}|{pass_val}"
+
+        try:
+            client.send(request + "\n")
+            response = client.recv().rstrip("\n")
+            parts = response.split("|", 1)
+            status = parts[0]
+            message = parts[1] if len(parts) > 1 else ""
+
+            if status == "ERROR":
+                status_error = message or "Mesh request failed"
+                event.app.layout.focus(mesh_name_input)
+                event.app.invalidate()
+                return
+
+            mesh_name = name_val
+            mesh_password = pass_val
+            status_error = ""
+            current_step = 4
+            event.app.layout.focus(input_field)
+            threading.Thread(target=receive_messages, daemon=True).start()
+            update_chat()
+            event.app.invalidate()
+
+        except Exception as e:
+            status_error = f"Error during setup: {e}"
+            event.app.invalidate()
+
+    # Chat Mode: Tab toggle
+    @kb.add("tab", filter=is_chat)
+    def _(event):
+        if event.app.layout.has_focus(input_field):
+            event.app.layout.focus(chat_area)
+            show_toast("📋 Browse Mode: [c] Copy Clean Message | [l] Copy Last | [Enter] Type", duration=4.0)
+        else:
+            event.app.layout.focus(input_field)
+
+    @kb.add("s-tab", filter=is_chat)
+    def _(event):
+        if event.app.layout.has_focus(input_field):
+            event.app.layout.focus(chat_area)
+        else:
+            event.app.layout.focus(input_field)
+
+    # Chat Mode: Input Field Keybindings
+    @kb.add("enter", filter=is_chat & has_focus(input_field))
+    def _(event):
+        send_message()
+
+    @kb.add("pageup", filter=is_chat & has_focus(input_field))
+    def _(event):
+        scroll_up()
+
+    @kb.add("pagedown", filter=is_chat & has_focus(input_field))
+    def _(event):
+        scroll_down()
+
+    @kb.add("home", filter=is_chat & has_focus(input_field))
+    def _(event):
+        scroll_top()
+
+    @kb.add("end", filter=is_chat & has_focus(input_field))
+    def _(event):
+        scroll_bottom()
+
+    # Chat Mode: Chat Area Keybindings
+    @kb.add("escape", filter=is_chat & has_focus(chat_area))
+    @kb.add("enter", filter=is_chat & has_focus(chat_area))
+    @kb.add("i", filter=is_chat & has_focus(chat_area))
+    def _(event):
+        event.app.layout.focus(input_field)
+
+    @kb.add("c", filter=is_chat & has_focus(chat_area))
+    @kb.add("c-c", filter=is_chat & has_focus(chat_area))
+    @kb.add("y", filter=is_chat & has_focus(chat_area))
+    def _(event):
+        copy_chat_selection_or_current()
+
+    @kb.add("l", filter=is_chat & has_focus(chat_area))
+    def _(event):
+        copy_latest_message_action()
+
+    @kb.add("a", filter=is_chat & has_focus(chat_area))
+    def _(event):
+        copy_all_messages_action()
+
+    style = Style.from_dict(
+        {
+            "title": "bold ansiwhite",
+            "self-name": "bold ansigreen",
+            "mesh": "bold ansicyan",
+            "separator": "ansibrightblack",
+            "count": "ansicyan",
+            "connected": "bold ansigreen",
+            "mode.input": "bg:#1e3a8a fg:#93c5fd bold",
+            "mode.browse": "bg:#065f46 fg:#6ee7b7 bold",
+            "root": "bg:#0b0f14",
+            "frame.border": "ansibrightblack",
+            "frame.label": "bold ansicyan",
+            "chat": "bg:#0e131b",
+            "banner": "bold ansicyan",
+            "step-title": "bold ansiwhite",
+            "step-done": "bold ansigreen",
+            "menu-selected": "bold bg:#2563eb fg:#ffffff",
+            "menu-unselected": "fg:#9ca3af bg:#1f2937",
+            "error": "bold ansired",
+            "server-icon": "bold ansiyellow",
+            "server-tag": "bold ansiyellow",
+            "server-join-icon": "bold ansigreen",
+            "server-join": "bold ansigreen",
+            "server-leave-icon": "bold ansired",
+            "server-leave": "bold ansired",
+            "server-message": "ansiyellow",
+            "help-icon": "bold ansicyan",
+            "help-tag": "bold ansicyan",
+            "help-message": "ansicyan",
+            "error-icon": "bold ansired",
+            "error-tag": "bold ansired",
+            "error-message": "bold ansired",
+            "user-color-0": "bold ansicyan",
+            "user-color-1": "bold ansimagenta",
+            "user-color-2": "bold ansiyellow",
+            "user-color-3": "bold ansibrightblue",
+            "user-color-4": "bold ansibrightmagenta",
+            "user-color-5": "bold ansibrightcyan",
+            "user-color-6": "bold ansibrightyellow",
+            "user-color-7": "bold ansibrightgreen",
+            "message": "ansiwhite",
+            "markdown-bold": "bold ansiwhite",
+            "markdown-italic": "italic ansiwhite",
+            "inline-code": "bold bg:#1e293b fg:#38bdf8",
+            "code-fence": "ansibrightblack",
+            "code-border": "bold ansicyan",
+            "code-block": "ansiwhite",
+            "quote-bar": "bold ansicyan",
+            "blockquote": "italic ansibrightblack",
+            "url": "underline ansicyan",
+            "mention": "bold bg:#3730a3 fg:#c7d2fe",
+            "self-mention": "bold bg:#065f46 fg:#86efac",
+            "member-bullet": "bold ansiyellow",
+            "toast": "bold bg:#065f46 fg:#ffffff",
+            "footer.key": "bold ansicyan",
+            "footer.desc": "ansibrightblack",
+            "scrollbar.background": "bg:#0e131b",
+            "scrollbar.button": "bg:#3b82f6",
+            "scrollbar.arrow": "fg:#93c5fd",
+        }
+    )
+
+    layout = Layout(root_container, focused_element=name_input)
+
+    app = Application(
+        layout=layout,
+        key_bindings=kb,
+        style=style,
+        full_screen=True,
+        mouse_support=True,
+    )
+
     app.run()
 
 
