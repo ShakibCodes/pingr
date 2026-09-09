@@ -16,6 +16,7 @@ from textual.widgets import Button, Input, Label, RadioButton, RadioSet, RichLog
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
+__version__ = "0.2.0"
 DEFAULT_SERVER_URL = "wss://tmsg.onrender.com"
 USER_PALETTE = [
     "#60a5fa",  # blue
@@ -510,6 +511,7 @@ class ChatScreen(Screen):
         log.write("[#71717a]This room is ephemeral — messages exist only in memory.[/]")
         log.write("[#71717a]Share room name and password with friends to chat.[/]")
         log.write("[dim]──────────────────────────────────────────────────────────[/]")
+        log.write("")
 
         self.query_one("#chat-input", Input).focus()
         self.run_worker(self.receive_loop(), exclusive=True)
@@ -545,6 +547,7 @@ class ChatScreen(Screen):
                         log.write(f"[#71717a]{now}[/]  [dim italic #f87171]← {u} left the mesh[/]")
                     else:
                         log.write(f"[#71717a]{now}[/]  [dim italic #a1a1aa]— {clean_text} —[/]")
+                    log.write("")
                     self.app.messages.append(Message("server", None, clean_text, timestamp=now))
 
                 elif msg_type == "CHAT":
@@ -563,12 +566,13 @@ class ChatScreen(Screen):
                         lines = content.split("\n")
                         if len(lines) == 1:
                             formatted = format_message_rich(lines[0], self.app.username)
-                            log.write(f"[#71717a]{now}[/]  {user_tag} {formatted}")
+                            log.write(f"[#71717a]{now}[/]  {user_tag}  {formatted}")
                         else:
                             log.write(f"[#71717a]{now}[/]  {user_tag}")
                             for line in lines:
                                 formatted = format_message_rich(line, self.app.username)
                                 log.write(f"       [#52525b]│[/] {formatted}")
+                        log.write("")
 
                 elif msg_type == "COUNT":
                     if len(parts) >= 2:
@@ -590,6 +594,7 @@ class ChatScreen(Screen):
                                 else f"[#f4f4f5]{m}[/]"
                             )
                             log.write(f"       [#71717a]•[/] {m_label}")
+                        log.write("")
 
             except Exception:
                 break
@@ -677,6 +682,7 @@ class ChatScreen(Screen):
         log.write("[bold #f4f4f5]Formatting[/]")
         log.write("  [#71717a]**bold**, *italic*, `code`, > quote, @user, https://url[/]")
         log.write("[dim]──────────────────────────────────────────────────────────[/]")
+        log.write("")
 
 
 class PingrApp(App):
@@ -698,6 +704,24 @@ class PingrApp(App):
 
 
 def main():
+    args = sys.argv[1:]
+    if "-v" in args or "--version" in args:
+        print(f"pingr {__version__}")
+        return
+    if "-h" in args or "--help" in args:
+        print("pingr - A clean, minimal, and ephemeral terminal mesh messaging client\n")
+        print("Usage:")
+        print("  pingr [OPTIONS]")
+        print("  msg [OPTIONS]\n")
+        print("Options:")
+        print("  -s, --server <url>   WebSocket server URL (default: wss://tmsg.onrender.com)")
+        print("  -v, --version        Show version number and exit")
+        print("  -h, --help           Show this help message and exit\n")
+        print("Environment Variables:")
+        print("  TMSG_SERVER          Default server URL to connect to")
+        print("  SERVER_URL           Fallback server URL")
+        return
+
     app = PingrApp()
     app.run()
 

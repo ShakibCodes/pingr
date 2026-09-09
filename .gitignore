@@ -1,7 +1,21 @@
 __pycache__/
 *.py[cod]
-*.egg-info/
+*$py.class
+
+# Distribution / packaging
 dist/
 build/
+*.egg-info/
+.eggs/
+
+# Virtual environments
 .venv/
 venv/
+env/
+ENV/
+
+# IDE & OS
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
