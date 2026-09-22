@@ -68,23 +68,15 @@ When the program starts you’ll see a setup dialog:
 
 Press **Enter** to move between fields and **Connect** to join.
 
-### 2️⃣ Chatting & commands
-```
-pingr  •  #general  •  @shakib                                             ● 3 online
-──────────────────────────────────────────────────────────────────────────────────────
-12:00  ➜ alex joined the mesh
 
-12:01  alex:  Hey everyone! Have you installed `pip install pingr` yet?
+## 📸 Screenshots
 
-12:01  shakib (You):  Yes, the new Textual UI looks super clean!
+<!-- Add 2-3 screenshots of the UI below -->
+![Screenshot 1](./screenshots/img1.png)
+![Screenshot 2](./screenshots/img2.png)
 
-12:02  alex:  > markdown quotes and @mentions are working great too
-──────────────────────────────────────────────────────────────────────────────────────
-[ Write a message... (Enter to send, /help for commands)                             ]
-Enter: Send  •  /copy: Copy Last  •  /help: Help  •  /members: Members  •  /exit: Quit
-```
-
-#### Slash commands
+---
+### Slash commands
 | Command    | Description |
 |------------|-------------|
 | `/copy`    | Copy the latest chat message to the clipboard |
@@ -94,7 +86,7 @@ Enter: Send  •  /copy: Copy Last  •  /help: Help  •  /members: Members  �
 | `/help`    | Show built‑in command reference |
 | `/exit`    | Disconnect and quit |
 
-#### Keyboard shortcuts
+### Keyboard shortcuts
 | Shortcut | Action |
 |----------|--------|
 | `Enter` | Submit field / send message |
@@ -174,5 +166,6 @@ Contributions, issues, and feature suggestions are welcome! Please check the
 Distributed under the **MIT License**. See the [LICENSE](LICENSE) file for details.
 
 ---
+
 
 *Happy chatting!*
