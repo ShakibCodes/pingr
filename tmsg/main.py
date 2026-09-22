@@ -1,3 +1,4 @@
+import json
 import os
 import platform
 import re
@@ -9,7 +10,7 @@ import websockets
 from rich.markup import escape
 from textual import work
 from textual.app import App, ComposeResult
-from textual.containers import Container, Horizontal
+from textual.containers import Container, Horizontal, Vertical, VerticalScroll
 from textual.screen import Screen
 from textual.widgets import Button, Input, Label, RadioButton, RadioSet, RichLog, Static
 
@@ -202,7 +203,7 @@ SetupScreen {
 }
 
 #setup-card {
-    width: 68;
+    width: 72;
     height: auto;
     background: #121214;
     border: round #27272a;
@@ -243,7 +244,7 @@ Input:focus {
     border: round #3b82f6;
 }
 
-#mode-radio {
+#action-radio {
     background: transparent;
     border: none;
     height: auto;
@@ -253,7 +254,7 @@ Input:focus {
     margin-bottom: 1;
 }
 
-#mode-radio RadioButton {
+#action-radio RadioButton {
     background: transparent;
     color: #a1a1aa;
     height: 1;
@@ -262,15 +263,114 @@ Input:focus {
     margin-right: 3;
 }
 
-#mode-radio RadioButton:focus {
+#action-radio RadioButton:focus {
     color: #f4f4f5;
 }
 
-#button-row {
+#visibility-radio {
+    background: transparent;
+    border: none;
+    height: auto;
+    layout: horizontal;
+    padding: 0;
+    margin-top: 0;
+    margin-bottom: 1;
+}
+
+#visibility-radio RadioButton {
+    background: transparent;
+    color: #a1a1aa;
+    height: 1;
+    padding: 0;
+    width: auto;
+    margin-right: 3;
+}
+
+#visibility-radio RadioButton:focus {
+    color: #f4f4f5;
+}
+
+#start-container {
+    height: auto;
+}
+
+#join-container {
+    height: auto;
+}
+
+#public-list-scroll {
+    height: auto;
+    max-height: 16;
+    background: #09090b;
+    border: round #27272a;
+    padding: 1 2;
+    margin-bottom: 1;
+}
+
+.mesh-card {
+    height: auto;
+    background: #18181b;
+    border: round #27272a;
+    padding: 1 2;
+    margin-bottom: 1;
+}
+
+.mesh-card:hover {
+    border: round #3b82f6;
+}
+
+.mesh-card-header {
+    height: 1;
+    layout: horizontal;
+}
+
+.mesh-card-name {
+    width: 1fr;
+    color: #60a5fa;
+    text-style: bold;
+}
+
+.mesh-card-online {
+    width: auto;
+    color: #22c55e;
+}
+
+.mesh-card-desc {
+    height: 1;
+    color: #71717a;
+    margin-top: 0;
+}
+
+#empty-state {
+    color: #52525b;
+    text-align: center;
+    padding: 2 0;
+}
+
+.section-divider {
+    color: #27272a;
+    margin-top: 1;
+    margin-bottom: 1;
+    text-align: center;
+}
+
+.button-row {
     margin-top: 2;
     margin-bottom: 1;
     height: 3;
     align: right middle;
+}
+
+.public-header-row {
+    height: 3;
+    margin-top: 1;
+    margin-bottom: 0;
+    align: left middle;
+}
+
+.public-header-row Label {
+    width: 1fr;
+    margin: 0;
 }
 
 Button {
@@ -289,15 +389,48 @@ Button {
     background: #3b82f6;
 }
 
-#quit-btn {
+#quit-btn, #quit-btn-join {
     background: #27272a;
     color: #a1a1aa;
     margin-right: 2;
 }
 
-#quit-btn:hover {
+#quit-btn:hover, #quit-btn-join:hover {
     background: #3f3f46;
     color: #f4f4f5;
+}
+
+#refresh-btn {
+    background: #27272a;
+    color: #a1a1aa;
+    min-width: 12;
+}
+
+#refresh-btn:hover {
+    background: #3f3f46;
+    color: #f4f4f5;
+}
+
+.join-btn {
+    background: #2563eb;
+    color: #ffffff;
+    text-style: bold;
+    min-width: 10;
+    height: 3;
+}
+
+.join-btn:hover {
+    background: #3b82f6;
+}
+
+#join-private-btn {
+    background: #2563eb;
+    color: #ffffff;
+    text-style: bold;
+}
+
+#join-private-btn:hover {
+    background: #3b82f6;
 }
 
 #error-label {
@@ -379,44 +512,147 @@ class SetupScreen(Screen):
             yield Input(placeholder="your-handle", id="handle-input", max_length=24)
 
             yield Label("Action", classes="field-label")
-            with RadioSet(id="mode-radio"):
+            with RadioSet(id="action-radio"):
                 yield RadioButton("Start a new mesh", value=True)
-                yield RadioButton("Join existing mesh")
+                yield RadioButton("Browse & join mesh")
 
-            yield Label("Mesh Room", classes="field-label")
-            yield Input(placeholder="room-name", id="mesh-input", max_length=32)
+            # === START MESH CONTAINER ===
+            with Container(id="start-container"):
+                yield Label("Visibility", classes="field-label")
+                with RadioSet(id="visibility-radio"):
+                    yield RadioButton("Public (no password)", value=True)
+                    yield RadioButton("Private (password protected)")
 
-            yield Label("Password", classes="field-label")
-            yield Input(placeholder="••••••••", password=True, id="pass-input", max_length=128)
+                yield Label("Mesh Room", classes="field-label")
+                yield Input(placeholder="room-name", id="mesh-input", max_length=32)
 
-            with Horizontal(id="button-row"):
-                yield Button("Quit", variant="default", id="quit-btn")
-                yield Button("Connect", variant="primary", id="connect-btn")
+                yield Label("Description", classes="field-label")
+                yield Input(placeholder="e.g. Discussing open-source TUI projects", id="desc-input", max_length=100)
+
+                yield Label("Password", classes="field-label", id="pass-label")
+                yield Input(placeholder="••••••••", password=True, id="pass-input", max_length=128)
+
+                with Horizontal(classes="button-row"):
+                    yield Button("Quit", variant="default", id="quit-btn")
+                    yield Button("Create Mesh", variant="primary", id="connect-btn")
+
+            # === JOIN MESH CONTAINER (hidden by default) ===
+            with Container(id="join-container"):
+                with Horizontal(classes="public-header-row"):
+                    yield Label("Public Meshes", classes="field-label")
+                    yield Button("↻ Refresh", variant="default", id="refresh-btn")
+
+                with VerticalScroll(id="public-list-scroll"):
+                    yield Static("[#52525b]Loading public meshes...[/]", id="empty-state")
+
+                yield Static("[#27272a]─── or join a private mesh ───[/]", classes="section-divider")
+
+                yield Label("Room Name", classes="field-label")
+                yield Input(placeholder="private-room-name", id="private-mesh-input", max_length=32)
+
+                yield Label("Password", classes="field-label")
+                yield Input(placeholder="••••••••", password=True, id="private-pass-input", max_length=128)
+
+                with Horizontal(classes="button-row"):
+                    yield Button("Quit", variant="default", id="quit-btn-join")
+                    yield Button("Join Private", variant="primary", id="join-private-btn")
 
             yield Label("", id="error-label")
 
     def on_mount(self) -> None:
+        # Hide join container and password field by default
+        self.query_one("#join-container").display = False
+        self.query_one("#pass-label").display = False
+        self.query_one("#pass-input").display = False
         self.query_one("#handle-input", Input).focus()
 
+    def on_radio_set_changed(self, event: RadioSet.Changed) -> None:
+        if event.radio_set.id == "action-radio":
+            is_start = event.index == 0
+            self.query_one("#start-container").display = is_start
+            self.query_one("#join-container").display = not is_start
+            self.query_one("#error-label", Label).update("")
+
+            if not is_start:
+                # Fetch public meshes when switching to join mode
+                self.run_worker(self.fetch_public_meshes(), exclusive=True, name="fetch_public")
+
+        elif event.radio_set.id == "visibility-radio":
+            is_public = event.index == 0
+            self.query_one("#pass-label").display = not is_public
+            self.query_one("#pass-input").display = not is_public
+
     def on_button_pressed(self, event: Button.Pressed) -> None:
-        if event.button.id == "quit-btn":
+        bid = event.button.id
+        if bid in ("quit-btn", "quit-btn-join"):
             self.app.exit()
-        elif event.button.id == "connect-btn":
-            self.run_worker(self.do_connect(), exclusive=True)
+        elif bid == "connect-btn":
+            self.run_worker(self.do_create_mesh(), exclusive=True)
+        elif bid == "refresh-btn":
+            self.run_worker(self.fetch_public_meshes(), exclusive=True, name="fetch_public")
+        elif bid == "join-private-btn":
+            self.run_worker(self.do_join_private(), exclusive=True)
+        elif "join-btn" in event.button.classes:
+            mesh_name = event.button.name or (bid[len("join-pub-"):] if bid and bid.startswith("join-pub-") else "")
+            if mesh_name:
+                self.run_worker(self.do_join_public(mesh_name), exclusive=True)
 
     def on_input_submitted(self, event: Input.Submitted) -> None:
-        if event.input.id == "handle-input":
-            self.query_one("#mesh-input", Input).focus()
-        elif event.input.id == "mesh-input":
-            self.query_one("#pass-input", Input).focus()
-        elif event.input.id == "pass-input":
-            self.run_worker(self.do_connect(), exclusive=True)
+        iid = event.input.id
+        if iid == "handle-input":
+            if self.query_one("#start-container").display:
+                self.query_one("#mesh-input", Input).focus()
+            else:
+                self.query_one("#private-mesh-input", Input).focus()
+        elif iid == "mesh-input":
+            self.query_one("#desc-input", Input).focus()
+        elif iid == "desc-input":
+            vis_radio = self.query_one("#visibility-radio", RadioSet)
+            is_public = vis_radio.pressed_index == 0
+            if is_public:
+                self.run_worker(self.do_create_mesh(), exclusive=True)
+            else:
+                self.query_one("#pass-input", Input).focus()
+        elif iid == "pass-input":
+            self.run_worker(self.do_create_mesh(), exclusive=True)
+        elif iid == "private-mesh-input":
+            self.query_one("#private-pass-input", Input).focus()
+        elif iid == "private-pass-input":
+            self.run_worker(self.do_join_private(), exclusive=True)
 
-    async def do_connect(self) -> None:
+    async def _validate_handle(self, ws):
+        """Send handle and validate with server. Returns True on success."""
+        handle = self.query_one("#handle-input", Input).value.strip()
+        error_lbl = self.query_one("#error-label", Label)
+
+        if not handle:
+            error_lbl.update("Display name cannot be empty")
+            self.query_one("#handle-input", Input).focus()
+            return False
+
+        await ws.send(handle + "\n")
+        raw_resp = (await ws.recv()).strip()
+        status, _, msg = raw_resp.partition("|")
+
+        if status == "ERROR":
+            error_lbl.update(msg or "Display name was rejected")
+            await ws.close()
+            return False
+
+        if status != "USERNAME_OK":
+            error_lbl.update("Invalid server response")
+            await ws.close()
+            return False
+
+        return True
+
+    async def do_create_mesh(self) -> None:
         handle = self.query_one("#handle-input", Input).value.strip()
         mesh = self.query_one("#mesh-input", Input).value.strip()
-        password = self.query_one("#pass-input", Input).value
-        is_start = self.query_one("#mode-radio", RadioSet).pressed_index == 0
+        desc = self.query_one("#desc-input", Input).value.strip()
+        vis_radio = self.query_one("#visibility-radio", RadioSet)
+        is_public = vis_radio.pressed_index == 0
+        password = "" if is_public else self.query_one("#pass-input", Input).value
         error_lbl = self.query_one("#error-label", Label)
         connect_btn = self.query_one("#connect-btn", Button)
 
@@ -428,52 +664,67 @@ class SetupScreen(Screen):
             error_lbl.update("Mesh room name cannot be empty")
             self.query_one("#mesh-input", Input).focus()
             return
-        if not password:
-            error_lbl.update("Password cannot be empty")
+        if not desc:
+            error_lbl.update("Description cannot be empty")
+            self.query_one("#desc-input", Input).focus()
+            return
+        if not is_public and not password:
+            error_lbl.update("Password cannot be empty for private meshes")
             self.query_one("#pass-input", Input).focus()
             return
 
         connect_btn.disabled = True
-        error_lbl.update("[#71717a]Connecting to server...[/]")
+        error_lbl.update("[#71717a]Creating mesh...[/]")
 
         try:
             ws = await websockets.connect(self.app.server_url)
 
             # 1. Send handle
             await ws.send(handle + "\n")
-            raw_username_resp = (await ws.recv()).strip()
-            u_status, _, u_msg = raw_username_resp.partition("|")
+            raw_resp = (await ws.recv()).strip()
+            status, _, msg = raw_resp.partition("|")
 
-            if u_status == "ERROR":
-                error_lbl.update(u_msg or "Display name was rejected")
+            if status == "ERROR":
+                error_lbl.update(msg or "Display name was rejected")
                 connect_btn.disabled = False
                 await ws.close()
                 return
 
-            if u_status != "USERNAME_OK":
+            if status != "USERNAME_OK":
                 error_lbl.update("Invalid server response")
                 connect_btn.disabled = False
                 await ws.close()
                 return
 
-            # 2. Send START or JOIN
-            cmd = "START" if is_start else "JOIN"
-            await ws.send(f"{cmd}|{mesh}|{password}\n")
+            # 2. Send START with new protocol
+            pub_flag = "1" if is_public else "0"
+            await ws.send(f"START|{mesh}|{pub_flag}|{desc}|{password}\n")
             raw_mesh_resp = (await ws.recv()).strip()
-            m_parts = raw_mesh_resp.split("|", 1)
+            m_parts = raw_mesh_resp.split("|", 2)
             m_status = m_parts[0]
             m_msg = m_parts[1] if len(m_parts) > 1 else ""
 
+            # Seamless fallback for legacy servers (e.g. production server before update)
+            if m_status == "ERROR" and ("unsupported characters" in m_msg or "Invalid start request" in m_msg):
+                fallback_password = password if not is_public else "public"
+                await ws.send(f"START|{mesh}|{fallback_password}\n")
+                raw_mesh_resp = (await ws.recv()).strip()
+                m_parts = raw_mesh_resp.split("|", 2)
+                m_status = m_parts[0]
+                m_msg = m_parts[1] if len(m_parts) > 1 else ""
+
             if m_status == "ERROR":
-                error_lbl.update(m_msg or "Mesh action failed")
+                error_lbl.update(m_msg or "Failed to create mesh")
                 connect_btn.disabled = False
                 await ws.close()
                 return
 
-            # 3. Successful connection
+            # 3. Success
             self.app.username = handle
             self.app.mesh_name = mesh
             self.app.mesh_password = password
+            self.app.mesh_is_public = is_public
+            self.app.mesh_description = desc
             self.app.ws = ws
             self.app.switch_screen(ChatScreen())
 
@@ -481,12 +732,221 @@ class SetupScreen(Screen):
             error_lbl.update(f"Connection failed: {e}")
             connect_btn.disabled = False
 
+    async def do_join_public(self, mesh_name: str) -> None:
+        handle = self.query_one("#handle-input", Input).value.strip()
+        error_lbl = self.query_one("#error-label", Label)
+
+        if not handle:
+            error_lbl.update("Display name cannot be empty")
+            self.query_one("#handle-input", Input).focus()
+            return
+
+        error_lbl.update(f"[#71717a]Joining #{mesh_name}...[/]")
+
+        try:
+            ws = await websockets.connect(self.app.server_url)
+
+            # 1. Send handle
+            await ws.send(handle + "\n")
+            raw_resp = (await ws.recv()).strip()
+            status, _, msg = raw_resp.partition("|")
+
+            if status == "ERROR":
+                error_lbl.update(msg or "Display name was rejected")
+                await ws.close()
+                return
+
+            if status != "USERNAME_OK":
+                error_lbl.update("Invalid server response")
+                await ws.close()
+                return
+
+            # 2. JOIN public mesh (no password)
+            await ws.send(f"JOIN|{mesh_name}|\n")
+            raw_mesh_resp = (await ws.recv()).strip()
+            m_parts = raw_mesh_resp.split("|", 2)
+            m_status = m_parts[0]
+            m_msg = m_parts[1] if len(m_parts) > 1 else ""
+            m_desc = m_parts[2] if len(m_parts) > 2 else ""
+
+            # Seamless fallback for public meshes on legacy servers
+            if m_status == "ERROR" and ("Password cannot be empty" in m_msg or "Wrong password" in m_msg):
+                await ws.send(f"JOIN|{mesh_name}|public\n")
+                raw_mesh_resp = (await ws.recv()).strip()
+                m_parts = raw_mesh_resp.split("|", 2)
+                m_status = m_parts[0]
+                m_msg = m_parts[1] if len(m_parts) > 1 else ""
+                m_desc = m_parts[2] if len(m_parts) > 2 else ""
+
+            if m_status == "ERROR":
+                error_lbl.update(m_msg or "Failed to join mesh")
+                await ws.close()
+                return
+
+            # 3. Success
+            self.app.username = handle
+            self.app.mesh_name = mesh_name
+            self.app.mesh_password = ""
+            self.app.mesh_is_public = True
+            self.app.mesh_description = m_desc
+            self.app.ws = ws
+            self.app.switch_screen(ChatScreen())
+
+        except Exception as e:
+            error_lbl.update(f"Connection failed: {e}")
+
+    async def do_join_private(self) -> None:
+        handle = self.query_one("#handle-input", Input).value.strip()
+        mesh = self.query_one("#private-mesh-input", Input).value.strip()
+        password = self.query_one("#private-pass-input", Input).value
+        error_lbl = self.query_one("#error-label", Label)
+        join_btn = self.query_one("#join-private-btn", Button)
+
+        if not handle:
+            error_lbl.update("Display name cannot be empty")
+            self.query_one("#handle-input", Input).focus()
+            return
+        if not mesh:
+            error_lbl.update("Room name cannot be empty")
+            self.query_one("#private-mesh-input", Input).focus()
+            return
+        if not password:
+            error_lbl.update("Password cannot be empty")
+            self.query_one("#private-pass-input", Input).focus()
+            return
+
+        join_btn.disabled = True
+        error_lbl.update("[#71717a]Joining private mesh...[/]")
+
+        try:
+            ws = await websockets.connect(self.app.server_url)
+
+            # 1. Send handle
+            await ws.send(handle + "\n")
+            raw_resp = (await ws.recv()).strip()
+            status, _, msg = raw_resp.partition("|")
+
+            if status == "ERROR":
+                error_lbl.update(msg or "Display name was rejected")
+                join_btn.disabled = False
+                await ws.close()
+                return
+
+            if status != "USERNAME_OK":
+                error_lbl.update("Invalid server response")
+                join_btn.disabled = False
+                await ws.close()
+                return
+
+            # 2. JOIN private mesh
+            await ws.send(f"JOIN|{mesh}|{password}\n")
+            raw_mesh_resp = (await ws.recv()).strip()
+            m_parts = raw_mesh_resp.split("|", 2)
+            m_status = m_parts[0]
+            m_msg = m_parts[1] if len(m_parts) > 1 else ""
+            m_desc = m_parts[2] if len(m_parts) > 2 else ""
+
+            if m_status == "ERROR":
+                error_lbl.update(m_msg or "Failed to join mesh")
+                join_btn.disabled = False
+                await ws.close()
+                return
+
+            # 3. Success
+            self.app.username = handle
+            self.app.mesh_name = mesh
+            self.app.mesh_password = password
+            self.app.mesh_is_public = False
+            self.app.mesh_description = m_desc
+            self.app.ws = ws
+            self.app.switch_screen(ChatScreen())
+
+        except Exception as e:
+            error_lbl.update(f"Connection failed: {e}")
+            join_btn.disabled = False
+
+    async def fetch_public_meshes(self) -> None:
+        """Fetch live public mesh directory from the server."""
+        error_lbl = self.query_one("#error-label", Label)
+        scroll = self.query_one("#public-list-scroll", VerticalScroll)
+
+        try:
+            ws = await websockets.connect(self.app.server_url)
+
+            # We need a temporary handle to authenticate
+            handle = self.query_one("#handle-input", Input).value.strip()
+            if not handle:
+                # Set a placeholder for listing only
+                handle = f"__listing_{id(self) % 9999}"
+
+            await ws.send(handle + "\n")
+            raw_resp = (await ws.recv()).strip()
+            status, _, msg = raw_resp.partition("|")
+
+            if status != "USERNAME_OK":
+                # Can't authenticate, show empty state
+                await scroll.remove_children()
+                await scroll.mount(
+                    Static("[#52525b]Enter a display name to browse public meshes[/]", id="empty-state")
+                )
+                try:
+                    await ws.close()
+                except Exception:
+                    pass
+                return
+
+            # Request public list
+            await ws.send("LIST_PUBLIC\n")
+            raw_list = (await ws.recv()).strip()
+            await ws.close()
+
+            # Release the temporary username
+            # (server will release on close)
+
+            # Parse response: PUBLIC_LIST|[{...}, ...]
+            if raw_list.startswith("PUBLIC_LIST|"):
+                json_str = raw_list[len("PUBLIC_LIST|"):]
+                mesh_list = json.loads(json_str)
+            else:
+                mesh_list = []
+
+            # Update the scroll container
+            await scroll.remove_children()
+
+            if not mesh_list:
+                await scroll.mount(
+                    Static("[#52525b]No public meshes active right now.\nStart one or join a private room below.[/]", id="empty-state")
+                )
+            else:
+                for m in mesh_list:
+                    name = m.get("name", "unknown")
+                    desc = m.get("desc", "")
+                    online = m.get("online", 0)
+                    card = Container(classes="mesh-card")
+                    await scroll.mount(card)
+                    header = Horizontal(classes="mesh-card-header")
+                    await card.mount(header)
+                    await header.mount(Label(f"[bold #60a5fa]#{name}[/]", classes="mesh-card-name"))
+                    await header.mount(Label(f"[#22c55e]● {online} online[/]", classes="mesh-card-online"))
+                    if desc:
+                        await card.mount(Label(f"[#71717a]{desc}[/]", classes="mesh-card-desc"))
+                    btn = Button("Join", variant="primary", name=name, classes="join-btn")
+                    await card.mount(btn)
+
+        except Exception as e:
+            await scroll.remove_children()
+            await scroll.mount(
+                Static(f"[#ef4444]Failed to fetch meshes: {e}[/]", id="empty-state")
+            )
+
 
 class ChatScreen(Screen):
     def compose(self) -> ComposeResult:
+        # Build header with public/private badge
+        pub_badge = "[#22c55e]Public[/]" if self.app.mesh_is_public else "[#f59e0b]Private[/]"
         with Horizontal(id="chat-header"):
             yield Label(
-                f"[bold]pingr[/]  [#71717a]•[/]  [#60a5fa]#{self.app.mesh_name}[/]  [#71717a]•[/]  [bold #10b981]@{self.app.username}[/]",
+                f"[bold]pingr[/]  [#71717a]•[/]  [#60a5fa]#{self.app.mesh_name}[/]  [#71717a]•[/]  {pub_badge}  [#71717a]•[/]  [bold #10b981]@{self.app.username}[/]",
                 id="header-left",
             )
             yield Label("[#22c55e]●[/]  [#a1a1aa]1 online[/]", id="header-right")
@@ -508,8 +968,14 @@ class ChatScreen(Screen):
     def on_mount(self) -> None:
         log = self.query_one("#chat-log", RichLog)
         log.write(f"[bold #f4f4f5]Connected to #{self.app.mesh_name}[/]")
-        log.write("[#71717a]This room is ephemeral — messages exist only in memory.[/]")
-        log.write("[#71717a]Share room name and password with friends to chat.[/]")
+        if self.app.mesh_description:
+            log.write(f"[#71717a]{self.app.mesh_description}[/]")
+        pub_label = "public" if self.app.mesh_is_public else "private"
+        log.write(f"[#71717a]This {pub_label} room is ephemeral — messages exist only in memory.[/]")
+        if self.app.mesh_is_public:
+            log.write("[#71717a]Anyone can discover and join this mesh from the public directory.[/]")
+        else:
+            log.write("[#71717a]Share room name and password with friends to chat.[/]")
         log.write("[dim]──────────────────────────────────────────────────────────[/]")
         log.write("")
 
@@ -695,6 +1161,8 @@ class PingrApp(App):
         self.username = ""
         self.mesh_name = ""
         self.mesh_password = ""
+        self.mesh_is_public = True
+        self.mesh_description = ""
         self.ws = None
         self.messages = []
         self.member_count = 1

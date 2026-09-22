@@ -1,4 +1,5 @@
 import asyncio
+import json
 import os
 import websockets
 
@@ -19,6 +20,7 @@ MAX_USERNAME_LENGTH = 24
 MAX_MESH_NAME_LENGTH = 32
 MAX_PASSWORD_LENGTH = 128
 MAX_MESSAGE_LENGTH = 2_000
+MAX_DESCRIPTION_LENGTH = 100
 
 
 def validate_text(value, label, maximum_length, allow_empty=False):
@@ -153,23 +155,58 @@ async def handle_client(websocket):
         while True:
             raw_req = await websocket.recv()
             data = raw_req.rstrip("\n")
-            parts = data.split("|", 2)
+            parts = data.split("|")
             command = parts[0]
 
-            if command == "START":
-                if len(parts) < 3:
+            if command == "LIST_PUBLIC":
+                async with state_lock:
+                    public_list = []
+                    for name, mesh in meshes.items():
+                        if mesh.get("is_public", False) and len(mesh.get("clients", {})) > 0:
+                            public_list.append({
+                                "name": name,
+                                "desc": mesh.get("description", ""),
+                                "online": len(mesh["clients"]),
+                            })
+                await send(websocket, f"PUBLIC_LIST|{json.dumps(public_list)}")
+                continue
+
+            elif command == "START":
+                if len(parts) == 3:
+                    # Legacy format: START|mesh|password
+                    requested_mesh, mesh_error = validate_text(
+                        parts[1], "Mesh name", MAX_MESH_NAME_LENGTH
+                    )
+                    is_public = False
+                    description = ""
+                    desc_error = None
+                    password, password_error = validate_text(
+                        parts[2], "Password", MAX_PASSWORD_LENGTH
+                    )
+                elif len(parts) >= 4:
+                    # New format: START|mesh|is_public|description[|password]
+                    requested_mesh, mesh_error = validate_text(
+                        parts[1], "Mesh name", MAX_MESH_NAME_LENGTH
+                    )
+                    is_public = parts[2] == "1"
+                    description, desc_error = validate_text(
+                        parts[3], "Description", MAX_DESCRIPTION_LENGTH, allow_empty=False
+                    )
+                    password = ""
+                    password_error = None
+                    if not is_public:
+                        if len(parts) < 5 or not parts[4]:
+                            password_error = "Password cannot be empty"
+                        else:
+                            password, password_error = validate_text(
+                                parts[4], "Password", MAX_PASSWORD_LENGTH
+                            )
+                else:
                     await send(websocket, "ERROR|Invalid start request")
                     continue
 
-                requested_mesh, mesh_error = validate_text(
-                    parts[1], "Mesh name", MAX_MESH_NAME_LENGTH
-                )
-                password, password_error = validate_text(
-                    parts[2], "Password", MAX_PASSWORD_LENGTH
-                )
-
-                if mesh_error or password_error:
-                    await send(websocket, f"ERROR|{mesh_error or password_error}")
+                if mesh_error or desc_error or password_error:
+                    await send(websocket, f"ERROR|{mesh_error or desc_error or password_error}")
                     continue
 
                 async with state_lock:
@@ -178,6 +215,8 @@ async def handle_client(websocket):
                     else:
                         exists = False
                         meshes[requested_mesh] = {
+                            "is_public": is_public,
+                            "description": description,
                             "password": password,
                             "clients": {websocket: username},
                         }
@@ -189,25 +228,22 @@ async def handle_client(websocket):
                 mesh_name = requested_mesh
                 print(f"{username} created mesh: {mesh_name}")
 
-                await send(websocket, "SUCCESS|Mesh created")
+                await send(websocket, f"SUCCESS|Mesh created|{description}")
                 await send(websocket, f"SERVER|Mesh '{mesh_name}' created")
                 await send_member_count(mesh_name)
                 break
 
             elif command == "JOIN":
-                if len(parts) < 3:
+                if len(parts) < 2:
                     await send(websocket, "ERROR|Invalid join request")
                     continue
 
                 requested_mesh, mesh_error = validate_text(
                     parts[1], "Mesh name", MAX_MESH_NAME_LENGTH
                 )
-                password, password_error = validate_text(
-                    parts[2], "Password", MAX_PASSWORD_LENGTH
-                )
 
-                if mesh_error or password_error:
-                    await send(websocket, f"ERROR|{mesh_error or password_error}")
+                if mesh_error:
+                    await send(websocket, f"ERROR|{mesh_error}")
                     continue
 
                 async with state_lock:
@@ -215,11 +251,25 @@ async def handle_client(websocket):
 
                     if existing_mesh_name is None:
                         status = "NOT_FOUND"
-                    elif password != meshes[existing_mesh_name]["password"]:
-                        status = "WRONG_PASSWORD"
                     else:
-                        status = "OK"
-                        meshes[existing_mesh_name]["clients"][websocket] = username
+                        mesh = meshes[existing_mesh_name]
+                        if mesh.get("is_public", False):
+                            status = "OK"
+                            mesh["clients"][websocket] = username
+                            description = mesh.get("description", "")
+                        else:
+                            if len(parts) < 3:
+                                status = "WRONG_PASSWORD"
+                            else:
+                                password, password_error = validate_text(
+                                    parts[2], "Password", MAX_PASSWORD_LENGTH
+                                )
+                                if password_error or password != mesh.get("password", ""):
+                                    status = "WRONG_PASSWORD"
+                                else:
+                                    status = "OK"
+                                    mesh["clients"][websocket] = username
+                                    description = mesh.get("description", "")
 
                 if status == "NOT_FOUND":
                     await send(websocket, "ERROR|Mesh does not exist")
@@ -232,7 +282,7 @@ async def handle_client(websocket):
                 mesh_name = existing_mesh_name
                 print(f"{username} joined mesh: {mesh_name}")
 
-                await send(websocket, "SUCCESS|Joined mesh")
+                await send(websocket, f"SUCCESS|Joined mesh|{description}")
                 await broadcast(mesh_name, f"SERVER|{username} joined the mesh")
                 await send_member_count(mesh_name)
                 break
